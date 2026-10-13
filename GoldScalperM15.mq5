@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.32"
+#property version   "1.33"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -19,6 +19,12 @@ enum ENUM_STRATEGY
    STRAT_BREAKOUT = 1,  // Donchian breakout ตามเทรนด์
    STRAT_RSI2     = 2,  // RSI(2) ย่อตัวในเทรนด์
    STRAT_ORB      = 3   // Opening Range Breakout (กรอบราคาช่วงเช้า)
+};
+
+enum ENUM_LANG
+{
+   LANG_TH = 0,  // ไทย
+   LANG_EN = 1   // English
 };
 
 enum ENUM_LOT_MODE
@@ -96,6 +102,10 @@ input bool   InpShowPanel = true;  // แสดงแผงควบคุม
 input int    InpPanelX    = 10;    // ตำแหน่งแผง X (พิกเซล)
 input int    InpPanelY    = 30;    // ตำแหน่งแผง Y (พิกเซล)
 
+input group "=== ตรวจบัญชี / Account check ==="
+input ENUM_LANG InpLanguage       = LANG_TH; // ภาษาหน้าต่างแนะนำ / Popup language
+input bool   InpAccountCheck    = true;  // เด้งหน้าต่างวิเคราะห์บัญชีตอนเริ่ม / Show account check on start
+
 input group "=== วิเคราะห์ไม้แพ้ ==="
 input int    InpLossCooldownMin = 20;   // พักหลังไม้แพ้ (นาที, 0 = ปิด)
 input bool   InpJournal         = true; // บันทึกทุกไม้ + สาเหตุที่แพ้ ลง CSV (Common\Files)
@@ -123,6 +133,14 @@ CTrade    trade;
 int       hFast, hSlow, hTrend, hRSI, hRSI2, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1;
 TradeInfo ti;
 bool      tiValid       = false;
+// Lot settings in effect (inputs, or the account-check recommendation chosen in the popup).
+ENUM_LOT_MODE lotModeRt  = LOT_FIXED;
+double    riskPctRt     = 1.0;
+bool      rtInit        = false;
+ENUM_LOT_MODE rtSeenMode = LOT_FIXED;
+double    rtSeenRisk    = 0;
+bool      accountCheckDone    = false;   // globals survive timeframe changes: popup once per attach
+bool      accountCheckPending = false;
 double    orbHigh       = 0, orbLow = 0;   // last ORB range seen by GetSignal()
 datetime  cooldownUntil = 0;
 datetime lastBarTime     = 0;
@@ -148,6 +166,18 @@ int OnInit()
       Print("InpRiskPct ต้องมากกว่า 0 และไม่เกิน InpMaxRiskPct (", InpMaxRiskPct, "%) - ไม่อย่างนั้นทุกไม้จะถูกข้าม");
       return INIT_PARAMETERS_INCORRECT;
    }
+
+   // Keep a popup-chosen lot setting across timeframe changes, but follow edited inputs.
+   if(!rtInit || InpLotMode != rtSeenMode || InpRiskPct != rtSeenRisk)
+   {
+      lotModeRt  = InpLotMode;
+      riskPctRt  = InpRiskPct;
+      rtSeenMode = InpLotMode;
+      rtSeenRisk = InpRiskPct;
+      rtInit     = true;
+   }
+   if(InpAccountCheck && !MQLInfoInteger(MQL_TESTER) && !accountCheckDone)
+      accountCheckPending = true;
 
    hFast  = iMA(_Symbol, InpTF, InpFastEMA,  0, MODE_EMA, PRICE_CLOSE);
    hSlow  = iMA(_Symbol, InpTF, InpSlowEMA,  0, MODE_EMA, PRICE_CLOSE);
@@ -225,6 +255,12 @@ double OnTester()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   if(accountCheckPending)
+   {
+      accountCheckPending = false;
+      accountCheckDone    = true;
+      AccountCheck();
+   }
    RefreshStatus();
 }
 
@@ -635,6 +671,11 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
          Notify(StringFormat("ปิดออเดอร์ทั้งหมด %d ไม้ (กดปุ่มบนแผง)", n));
       }
    }
+   else if(sparam == PFX + "btnAcct")
+   {
+      ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+      AccountCheck();
+   }
    else
       return;
 
@@ -836,7 +877,7 @@ void Notify(string msg)
 
 void CreatePanel()
 {
-   int h = 10 + LINE_H * PANEL_LINES + 40;
+   int h = 10 + LINE_H * PANEL_LINES + 72;
    string bg = PFX + "bg";
    ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_LEFT_UPPER);
@@ -868,6 +909,9 @@ void CreatePanel()
    MakeButton(PFX + "btnPause", InpPanelX + 10,  by, 130, 26);
    MakeButton(PFX + "btnClose", InpPanelX + 150, by, 130, 26);
    ObjectSetString(0, PFX + "btnClose", OBJPROP_TEXT, "ปิดทุกไม้");
+   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 32, 270, 24);
+   ObjectSetString(0, PFX + "btnAcct", OBJPROP_TEXT, L("ตรวจบัญชี / คำแนะนำ", "Account check / advice"));
+   ObjectSetInteger(0, PFX + "btnAcct", OBJPROP_BGCOLOR, C'50,80,140');
    ObjectSetInteger(0, PFX + "btnClose", OBJPROP_BGCOLOR, C'150,45,45');
 }
 
@@ -936,7 +980,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.32", clrGold);
+   SetLine(0, "GoldScalper M15  v1.33", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StringFormat("วันนี้: %d/%d ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay, profitToday, ccy),
@@ -1182,12 +1226,12 @@ double LossPerLot(double slDist)
 // Lot size: fixed, or Balance × Risk% ÷ (loss per lot at the SL), rounded DOWN to the volume step.
 double CalcLots(double slDist)
 {
-   if(InpLotMode == LOT_FIXED)
+   if(lotModeRt == LOT_FIXED)
       return NormalizeLots(InpLots);
    double perLot = LossPerLot(slDist);
    if(perLot <= 0)
       return NormalizeLots(InpLots);
-   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * InpRiskPct / 100.0 / perLot);
+   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * riskPctRt / 100.0 / perLot);
 }
 
 double NormalizeLots(double lots)
@@ -1199,3 +1243,161 @@ double NormalizeLots(double lots)
    return MathMax(minL, MathMin(maxL, lots));
 }
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Account check popup (TH / EN)                                    |
+//+------------------------------------------------------------------+
+string L(string th, string en)
+{
+   return InpLanguage == LANG_EN ? en : th;
+}
+
+// Analyses balance vs. the money one stop-loss would cost right now, shows a verdict with
+// a recommendation, and lets the user pick an option. Live/demo only (never in the tester).
+void AccountCheck()
+{
+   if(MQLInfoInteger(MQL_TESTER))
+      return;
+
+   string title  = "GoldScalperM15 - " + L("วิเคราะห์บัญชี", "Account check");
+   double bal    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double freeM  = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   string ccy    = AccountInfoString(ACCOUNT_CURRENCY);
+   long   lev    = AccountInfoInteger(ACCOUNT_LEVERAGE);
+   bool   demo   = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO;
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double contract = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+
+   double atr[];
+   double slDist = 0, perLot = 0;
+   if(GetBuf(hATR, atr) && atr[0] > 0)
+   {
+      slDist = MathMax(atr[0] * InpSL_ATR, MinStopDistance());
+      perLot = LossPerLot(slDist);
+   }
+   if(bal <= 0 || perLot <= 0)
+   {
+      MessageBox(L("ยังวิเคราะห์ไม่ได้ ข้อมูลราคายังโหลดไม่ครบ\nลองกดปุ่ม \"ตรวจบัญชี\" บนแผงอีกครั้งภายหลัง",
+                   "Cannot analyse yet - price data is still loading.\nPress \"Account check\" on the panel again later."),
+                 title, MB_OK | MB_ICONINFORMATION);
+      return;
+   }
+
+   double slMin      = perLot * minLot;                 // money lost at min lot if SL is hit
+   double riskMinPct = slMin / bal * 100.0;
+   double lots       = CalcLots(slDist);
+   double riskNow    = perLot * lots;
+   double riskNowPct = riskNow / bal * 100.0;
+   double marginMin  = 0;
+   if(!OrderCalcMargin(ORDER_TYPE_BUY, _Symbol, minLot, SymbolInfoDouble(_Symbol, SYMBOL_ASK), marginMin))
+      marginMin = 0;
+   double maxRisk    = InpMaxRiskPct > 0 ? InpMaxRiskPct : 5.0;
+   double needMin    = slMin / (maxRisk / 100.0);       // smallest balance the risk guard accepts
+   double need1      = slMin / 0.01;                    // balance for 1% risk at min lot
+   bool   canRisk1   = bal * 0.01 / perLot >= minLot;   // 1%-risk sizing gives at least the min lot
+   string mode       = lotModeRt == LOT_FIXED ? L("Lot คงที่", "fixed lot")
+                                              : StringFormat(L("คำนวณจาก %.1f%%", "%.1f%% risk"), riskPctRt);
+
+   string m = StringFormat(L("บัญชี: %s | บาลานซ์ %.2f %s | Leverage 1:%I64d\n",
+                             "Account: %s | balance %.2f %s | leverage 1:%I64d\n"),
+                           demo ? "Demo" : L("เงินจริง", "Real"), bal, ccy, lev);
+   m += StringFormat(L("สัญลักษณ์: %s | ขนาดสัญญา %.2f | Lot ขั้นต่ำ %.2f\n\n", "Symbol: %s | contract %.2f | min lot %.2f\n\n"),
+                     _Symbol, contract, minLot);
+   m += StringFormat(L("SL ตอนนี้ประมาณ %.2f (%.0f จุด) ตาม ATR - เปลี่ยนทุกวัน\n", "Current SL is about %.2f (%.0f points) from ATR - changes daily\n"),
+                     slDist, slDist / _Point);
+   m += StringFormat(L("โดน SL ที่ Lot ขั้นต่ำ: เสีย %.2f %s = %.1f%% ของพอร์ต\n", "Loss at min lot if SL is hit: %.2f %s = %.1f%% of balance\n"),
+                     slMin, ccy, riskMinPct);
+   m += StringFormat(L("ตั้งค่าปัจจุบัน (%s): %.2f lot -> เสี่ยง %.2f %s = %.1f%% ต่อไม้\n", "Current setting (%s): %.2f lot -> risk %.2f %s = %.1f%% per trade\n"),
+                     mode, lots, riskNow, ccy, riskNowPct);
+   m += StringFormat(L("มาร์จิ้นที่ต้องใช้ต่อ Lot ขั้นต่ำ: %.2f %s (ว่าง %.2f)\n\n", "Margin for min lot: %.2f %s (free %.2f)\n\n"),
+                     marginMin, ccy, freeM);
+
+   int    buttons;
+   string optYes = "", optNo = "", optCancel = "";
+   int    level;   // 0 cannot trade, 1 high risk, 2 OK
+   bool   offerSwitch = false;   // popup offers switching to 1% risk lots
+   if(marginMin > freeM || (InpMaxRiskPct > 0 && riskNowPct > InpMaxRiskPct)) level = 0;
+   else if(riskNowPct > 2.0)                           level = 1;
+   else                                                level = 2;
+
+   if(level == 0)
+   {
+      m += L("ผล: ทุนไม่พอสำหรับบัญชีนี้ - EA จะข้ามทุกไม้\n", "Verdict: balance too small for this account - the EA will skip every trade\n");
+      m += StringFormat(L("แนะนำ:\n - ทุนขั้นต่ำที่ระบบกันความเสี่ยงยอมรับ ~%.0f %s (แนะนำ ~%.0f %s ที่เสี่ยง 1%%)\n - หรือใช้บัญชี Micro/Cent (lot เล็กกว่า 100 เท่า: ทุน ~%.0f %s ก็พอ)\n\n",
+                          "Recommendation:\n - Minimum balance the risk guard accepts: ~%.0f %s (recommended ~%.0f %s at 1%% risk)\n - Or use a Micro/Cent account (100x smaller lots: ~%.0f %s is enough)\n\n"),
+                        needMin, ccy, need1, ccy, MathCeil(needMin / 100.0), ccy);
+      buttons = MB_YESNOCANCEL | MB_ICONWARNING;
+      optYes = L("ให้ EA ทำงานต่อ (รอและข้ามไม้ที่เสี่ยงเกิน)", "keep the EA running (it waits and skips risky trades)");
+      optNo  = L("หยุดเปิดไม้ใหม่ชั่วคราว", "pause new trades");
+      optCancel = L("เอา EA ออกจากกราฟ", "remove the EA from the chart");
+   }
+   else if(level == 1)
+   {
+      m += StringFormat(L("ผล: เสี่ยงสูง %.1f%% ต่อไม้ (แนะนำไม่เกิน 2%%)\n", "Verdict: high risk, %.1f%% per trade (recommended max 2%%)\n"), riskNowPct);
+      if(canRisk1 && lotModeRt == LOT_FIXED)
+      {
+         m += L("แนะนำ: เปลี่ยนเป็นคำนวณ Lot จากความเสี่ยง 1% ต่อไม้\n\n", "Recommendation: switch to 1% risk-based lot sizing\n\n");
+         offerSwitch = true;
+         buttons = MB_YESNOCANCEL | MB_ICONWARNING;
+         optYes = L("ใช้คำแนะนำ (Lot จาก 1%)", "apply the recommendation (1% risk lots)");
+         optNo  = L("ใช้ค่าเดิม", "keep my settings");
+         optCancel = L("หยุดเปิดไม้ใหม่ชั่วคราว", "pause new trades");
+      }
+      else
+      {
+         m += StringFormat(L("แนะนำ: ลด Lot ไม่ได้แล้ว (ใช้ Lot ขั้นต่ำอยู่) - เพิ่มทุนเป็น ~%.0f %s หรือใช้บัญชี Micro/Cent\n\n",
+                             "Recommendation: lot cannot go lower (already min lot) - increase balance to ~%.0f %s or use a Micro/Cent account\n\n"),
+                           need1, ccy);
+         buttons = MB_YESNO | MB_ICONWARNING;
+         optYes = L("ให้ EA ทำงานต่อ", "keep the EA running");
+         optNo  = L("หยุดเปิดไม้ใหม่ชั่วคราว", "pause new trades");
+      }
+   }
+   else
+   {
+      m += StringFormat(L("ผล: ความเสี่ยงเหมาะสม %.1f%% ต่อไม้\n", "Verdict: risk is reasonable, %.1f%% per trade\n"), riskNowPct);
+      if(lotModeRt == LOT_FIXED && canRisk1 && NormalizeLots(bal * 0.01 / perLot) > lots)
+      {
+         m += StringFormat(L("ทางเลือก: คำนวณ Lot จากความเสี่ยง 1%% จะได้ %.2f lot (โตตามพอร์ต)\n\n",
+                             "Option: 1%% risk-based sizing would trade %.2f lot (grows with the account)\n\n"),
+                           NormalizeLots(bal * 0.01 / perLot));
+         buttons = MB_YESNO | MB_ICONINFORMATION;
+         offerSwitch = true;
+         optYes = L("ใช้ Lot จาก 1%", "use 1% risk lots");
+         optNo  = L("ใช้ค่าเดิม", "keep my settings");
+      }
+      else
+         buttons = MB_OK | MB_ICONINFORMATION;
+   }
+
+   if(optYes != "")
+   {
+      m += L("เลือก:\n", "Choose:\n");
+      m += "[" + L("ใช่", "Yes") + "] " + optYes + "\n";
+      m += "[" + L("ไม่", "No") + "] " + optNo + "\n";
+      if(optCancel != "")
+         m += "[" + L("ยกเลิก", "Cancel") + "] " + optCancel + "\n";
+   }
+
+   int answer = MessageBox(m, title, buttons);
+   string logLine = m;
+   StringReplace(logLine, "\n", " | ");
+   Print(title, ": ", logLine, " -> answer ", answer);
+
+   if(offerSwitch && answer == IDYES)
+   {
+      lotModeRt = LOT_RISK;
+      riskPctRt = MathMin(1.0, maxRisk);
+      Print(L("เปลี่ยนเป็นคำนวณ Lot จากความเสี่ยง 1% (เฉพาะรอบนี้ - ถ้าจะใช้ถาวรให้ตั้ง InpLotMode ใน Inputs)",
+              "Switched to 1% risk-based lots (this session - set InpLotMode in Inputs to make it permanent)"));
+   }
+   bool pause = (level == 0 && answer == IDNO) ||
+                (level == 1 && ((offerSwitch && answer == IDCANCEL) || (!offerSwitch && answer == IDNO)));
+   if(pause)
+   {
+      paused = true;
+      GlobalVariableSet(gvPaused, 1);
+   }
+   if(level == 0 && answer == IDCANCEL)
+      ExpertRemove();
+}

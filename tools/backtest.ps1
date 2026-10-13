@@ -33,6 +33,7 @@ function Invoke-Backtest {
         [int]$Model = 1,                 # 0 every tick, 1 = 1-minute OHLC, 4 = real ticks
         [double]$Deposit = 1000,
         [string]$Period = 'M15',
+        [string]$Symbol = 'GOLD',
         [hashtable]$Inputs = @{},
         [int]$TimeoutMin = 60
     )
@@ -51,7 +52,7 @@ function Invoke-Backtest {
 [Tester]
 Expert=MyEA\Dev\GS15_dev.ex5
 ExpertParameters=$setName
-Symbol=GOLD
+Symbol=$Symbol
 Period=$Period
 Model=$Model
 Optimization=0

@@ -7,7 +7,7 @@ with a volatility filter, per-trade risk guard, news filter, on-chart control pa
 
 ---
 
-## 📊 Backtest results (v1.32 defaults, XM Global `GOLD`, fixed 0.01 lot)
+## 📊 Backtest results (v1.33 defaults, XM Global `GOLD`, fixed 0.01 lot)
 
 | Period | Data | Deposit | Net profit | Profit factor | Max equity DD | Trades |
 |---|---|---|---|---|---|---|
@@ -57,6 +57,7 @@ Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable 
 | 🚦 **Filters** | Trading hours · max spread · trades per day · daily loss limit · Friday close · daily close |
 | 📰 **News filter** | MT5 economic calendar — pauses entries around high-impact USD events (live trading only) |
 | 🖥️ **Control panel** | Live status (incl. "low volatility"), position P/L, today's stats, spread/ATR, next news · **Pause** / **Close all** buttons |
+| 🧭 **Account check** | Start-up popup (TH/EN) that analyses balance, leverage, contract size and the money one stop-loss would cost, then recommends and lets you choose (keep, switch to 1% risk lots, pause, remove) |
 | 📱 **Notifications** | MT5 mobile push on open/close, news windows, daily-loss stop, skipped trades (max once a day) |
 
 ## 🚀 Installation
@@ -98,4 +99,4 @@ USER_GUIDE.md               User guide (English)
 
 - [ ] Telegram notifications & remote control
 - [ ] Trade journal export (CSV)
-- [ ] English / Thai language switch for the panel and alerts
+- [ ] English / Thai language switch for the panel and alerts (popup already supports both)

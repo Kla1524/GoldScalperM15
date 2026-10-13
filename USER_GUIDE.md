@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.32 — User Guide
+# GoldScalperM15 v1.33 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -80,6 +80,22 @@ The panel (top-left of the chart) shows:
 | `InpMinConfidence` | 1 | Confidence score 0–4 required to enter: +1 each for D1 trend (EMA50), H1 trend (EMA200), ADX H1 20–30, RSI(14) ≥ 70 in trade direction. 0 = off |
 | `InpLossCooldownMin` | 20 | Pause new entries for N minutes after a losing trade |
 | `InpJournal` | true | Log every trade with entry conditions and loss reasons to `MQL5\..\Common\Files\GS15_journal_GOLD_20261013.csv` (opens in Excel) |
+### Account check popup
+
+When the EA starts (live/demo only), and whenever you press **Account check / advice** on the panel, a window analyses your account. It shows:
+- balance, leverage, contract size, minimum lot and margin;
+- what one stop-loss would cost right now (from today's ATR) at the minimum lot and with your current lot setting.
+
+It then gives a verdict and lets you choose what to do:
+
+| Verdict | Choices |
+|---|---|
+| Balance too small (EA would skip every trade) | Keep running · Pause · Remove the EA. Shows the balance needed, or the Micro/Cent alternative |
+| High risk (> 2% per trade) | Switch to 1% risk lots · Keep settings · Pause |
+| Reasonable risk | Optionally switch to 1% risk lots (grows with the account) |
+
+`InpLanguage` selects **ไทย / English** for the popup; `InpAccountCheck` turns the start-up popup on or off. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
+
 ### Loss diagnosis
 
 After every losing trade the phone alert and the journal state *why* it lost (several reasons can apply):
