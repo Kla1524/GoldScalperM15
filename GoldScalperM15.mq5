@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.35"
+#property version   "1.37"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -33,8 +33,16 @@ enum ENUM_LOT_MODE
    LOT_RISK  = 1   // คำนวณจาก % ความเสี่ยง (Balance × Risk% ÷ SL)
 };
 
+enum ENUM_TRADE_STYLE
+{
+   STYLE_ONE   = 1,  // โหมด 1: ไม้ใหญ่ วันละ 1 ไม้
+   STYLE_MULTI = 2   // โหมด 2: ค่อยๆ ออกหลายไม้ (ไม้เล็ก ไม่จำกัดต่อวัน)
+};
+
 //--- inputs
 input group "=== ทั่วไป ==="
+input ENUM_TRADE_STYLE InpTradeStyle     = STYLE_ONE; // โหมดเทรด (เปลี่ยนได้จากปุ่มบนแผง)
+input double          InpMultiRiskPct    = 0.5;       // % ความเสี่ยงต่อไม้ในโหมด 2
 input ENUM_LOT_MODE   InpLotMode         = LOT_RISK;  // วิธีกำหนด Lot (คำนวณจาก % = ปรับตามทุนอัตโนมัติ)
 input double          InpLots            = 0.01;      // Lot คงที่ (ใช้เมื่อเลือก Lot คงที่)
 input double          InpRiskPct         = 1.0;       // % ความเสี่ยงต่อไม้ (ใช้เมื่อเลือกคำนวณจาก %)
@@ -104,7 +112,8 @@ input int    InpPanelY    = 30;    // ตำแหน่งแผง Y (พิ�
 
 input group "=== ตรวจบัญชี / Account check ==="
 input ENUM_LANG InpLanguage       = LANG_TH; // ภาษาหน้าต่างแนะนำ / Popup language
-input bool   InpAccountCheck    = true;  // เด้งหน้าต่างวิเคราะห์บัญชีตอนเริ่ม / Show account check on start
+input bool   InpAccountCheck    = true;  // วิเคราะห์บัญชีตอนเริ่ม / Account check on start
+input bool   InpAccountPopup    = false; // ตอนเริ่ม: true = หน้าต่างเด้ง (ต้องกดตอบ), false = แสดงในแท็บ Experts / Start-up check as popup (else Experts tab)
 
 input group "=== วิเคราะห์ไม้แพ้ ==="
 input int    InpLossCooldownMin = 20;   // พักหลังไม้แพ้ (นาที, 0 = ปิด)
@@ -150,6 +159,9 @@ string   newsBlockInfo   = "";
 string   newsNextInfo    = "";
 bool     paused          = false;
 string   gvPaused        = "";
+ENUM_TRADE_STYLE styleRt = STYLE_ONE;   // mode in effect (input, or chosen with the panel buttons)
+string   gvStyle         = "";
+string   gvStyleIn       = "";          // the input value when the mode was chosen
 int      lossNotifiedDay = -1;
 bool     showPanel       = false;
 
@@ -208,6 +220,24 @@ int OnInit()
    gvPaused = PFX + "paused_" + _Symbol + "_" + (string)InpMagic;
    paused   = GlobalVariableCheck(gvPaused) && GlobalVariableGet(gvPaused) > 0;
 
+   // Trade mode chosen on the panel survives restarts, until the input itself is edited.
+   styleRt   = InpTradeStyle;
+   gvStyle   = PFX + "style_" + _Symbol + "_" + (string)InpMagic;
+   gvStyleIn = PFX + "styleIn_" + _Symbol + "_" + (string)InpMagic;
+   if(!MQLInfoInteger(MQL_TESTER))
+   {
+      if(GlobalVariableCheck(gvStyle) && GlobalVariableCheck(gvStyleIn) &&
+         (int)GlobalVariableGet(gvStyleIn) == (int)InpTradeStyle)
+         styleRt = (ENUM_TRADE_STYLE)(int)GlobalVariableGet(gvStyle);
+      else
+         SaveStyle();
+   }
+   if(InpMultiRiskPct <= 0 || (InpMaxRiskPct > 0 && InpMultiRiskPct > InpMaxRiskPct))
+   {
+      Print("InpMultiRiskPct ต้องมากกว่า 0 และไม่เกิน InpMaxRiskPct (", InpMaxRiskPct, "%)");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
    showPanel = InpShowPanel && (!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_VISUAL_MODE));
    if(showPanel)
       CreatePanel();
@@ -259,7 +289,7 @@ void OnTimer()
    {
       accountCheckPending = false;
       accountCheckDone    = true;
-      AccountCheck();
+      AccountCheck(InpAccountPopup);
    }
    RefreshStatus();
 }
@@ -674,7 +704,12 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
    else if(sparam == PFX + "btnAcct")
    {
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
-      AccountCheck();
+      AccountCheck(true);
+   }
+   else if(sparam == PFX + "btnStyle1" || sparam == PFX + "btnStyle2")
+   {
+      ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+      ChooseStyle(sparam == PFX + "btnStyle1" ? STYLE_ONE : STYLE_MULTI);
    }
    else
       return;
@@ -825,7 +860,7 @@ string BlockReason(int tradesToday, double profitToday)
    if(TimeCurrent() < cooldownUntil)      return "พักหลังแพ้ ถึง " + TimeToString(cooldownUntil, TIME_MINUTES);
    if(newsBlocked)                        return "งดเทรด ช่วงข่าว";
    if(DailyLossHit(profitToday))          return "ถึงเพดานขาดทุนวันนี้";
-   if(InpMaxTradesPerDay > 0 && tradesToday >= InpMaxTradesPerDay)  return "ครบจำนวนไม้วันนี้";
+   if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return "ครบจำนวนไม้วันนี้";
    if(!InSession())                       return "นอกเวลาเทรด";
    if(!SpreadOK())                        return "สเปรดกว้างเกิน";
    if(!VolatilityOK())                    return "ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง";
@@ -873,11 +908,11 @@ void Notify(string msg)
 //+------------------------------------------------------------------+
 #define PANEL_W     290
 #define LINE_H      18
-#define PANEL_LINES 6
+#define PANEL_LINES 7
 
 void CreatePanel()
 {
-   int h = 10 + LINE_H * PANEL_LINES + 72;
+   int h = 10 + LINE_H * PANEL_LINES + 104;
    string bg = PFX + "bg";
    ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_LEFT_UPPER);
@@ -909,7 +944,11 @@ void CreatePanel()
    MakeButton(PFX + "btnPause", InpPanelX + 10,  by, 130, 26);
    MakeButton(PFX + "btnClose", InpPanelX + 150, by, 130, 26);
    ObjectSetString(0, PFX + "btnClose", OBJPROP_TEXT, "ปิดทุกไม้");
-   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 32, 270, 24);
+   MakeButton(PFX + "btnStyle1", InpPanelX + 10,  by + 32, 130, 24);
+   MakeButton(PFX + "btnStyle2", InpPanelX + 150, by + 32, 130, 24);
+   ObjectSetString(0, PFX + "btnStyle1", OBJPROP_TEXT, L("โหมด 1: วันละ 1 ไม้", "Mode 1: 1 trade/day"));
+   ObjectSetString(0, PFX + "btnStyle2", OBJPROP_TEXT, L("โหมด 2: หลายไม้", "Mode 2: multi"));
+   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 64, 270, 24);
    ObjectSetString(0, PFX + "btnAcct", OBJPROP_TEXT, L("ตรวจบัญชี / คำแนะนำ", "Account check / advice"));
    ObjectSetInteger(0, PFX + "btnAcct", OBJPROP_BGCOLOR, C'50,80,140');
    ObjectSetInteger(0, PFX + "btnClose", OBJPROP_BGCOLOR, C'150,45,45');
@@ -980,18 +1019,21 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.35", clrGold);
+   SetLine(0, "GoldScalper M15  v1.37", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
-   SetLine(3, StringFormat("วันนี้: %d/%s ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay > 0 ? (string)InpMaxTradesPerDay : "∞", profitToday, ccy),
+   SetLine(3, StyleLine(), clrKhaki);
+   SetLine(4, StringFormat("วันนี้: %d/%s ไม้ | P/L %.2f %s", tradesToday, MaxTradesEff() > 0 ? (string)MaxTradesEff() : "∞", profitToday, ccy),
            profitToday < 0 ? clrTomato : clrWhiteSmoke);
-   SetLine(4, StringFormat("สเปรด: %.2f / %.2f | ATR: %s", spread, InpMaxSpread, atrText),
+   SetLine(5, StringFormat("สเปรด: %.2f / %.2f | ATR: %s", spread, InpMaxSpread, atrText),
            spread > InpMaxSpread ? clrOrange : clrWhiteSmoke);
-   SetLine(5, "ข่าวถัดไป: " + news, newsBlocked ? clrOrange : clrSilver);
+   SetLine(6, "ข่าวถัดไป: " + news, newsBlocked ? clrOrange : clrSilver);
 
    string bp = PFX + "btnPause";
    ObjectSetString(0, bp, OBJPROP_TEXT, paused ? "เทรดต่อ" : "หยุดชั่วคราว");
    ObjectSetInteger(0, bp, OBJPROP_BGCOLOR, paused ? C'40,130,70' : C'180,120,30');
+   ObjectSetInteger(0, PFX + "btnStyle1", OBJPROP_BGCOLOR, styleRt == STYLE_ONE   ? C'40,130,70' : C'60,64,80');
+   ObjectSetInteger(0, PFX + "btnStyle2", OBJPROP_BGCOLOR, styleRt == STYLE_MULTI ? C'40,130,70' : C'60,64,80');
 
    ChartRedraw();
 }
@@ -1231,7 +1273,104 @@ double CalcLots(double slDist)
    double perLot = LossPerLot(slDist);
    if(perLot <= 0)
       return NormalizeLots(InpLots);
-   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * riskPctRt / 100.0 / perLot);
+   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * RiskPctEff() / 100.0 / perLot);
+}
+
+//+------------------------------------------------------------------+
+//| Trade mode: 1 = one bigger trade a day, 2 = several smaller ones |
+//+------------------------------------------------------------------+
+int MaxTradesEff()
+{
+   return styleRt == STYLE_MULTI ? 0 : InpMaxTradesPerDay;
+}
+
+double RiskPctEff()
+{
+   return styleRt == STYLE_MULTI ? InpMultiRiskPct : riskPctRt;
+}
+
+void SaveStyle()
+{
+   if(MQLInfoInteger(MQL_TESTER))
+      return;
+   GlobalVariableSet(gvStyle, (double)styleRt);
+   GlobalVariableSet(gvStyleIn, (double)InpTradeStyle);
+}
+
+string StyleLine()
+{
+   string size = lotModeRt == LOT_FIXED ? StringFormat("%.2f lot", InpLots)
+                                        : StringFormat(L("เสี่ยง %.1f%%", "risk %.1f%%"), RiskPctEff());
+   return styleRt == STYLE_MULTI ? StringFormat(L("โหมด 2: หลายไม้ ไม้เล็ก | %s", "Mode 2: several small | %s"), size)
+                                 : StringFormat(L("โหมด 1: ไม้ใหญ่ วันละ 1 | %s", "Mode 1: one big a day | %s"), size);
+}
+
+// Lots each mode would trade right now (for the comparison in the popup).
+double LotsForRisk(double pct, double slDist)
+{
+   if(lotModeRt == LOT_FIXED)
+      return NormalizeLots(InpLots);
+   double perLot = LossPerLot(slDist);
+   if(perLot <= 0)
+      return 0;
+   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * pct / 100.0 / perLot);
+}
+
+// Text describing both modes, with the tested results and today's lot size.
+string StyleDetails()
+{
+   double one = riskPctRt, multi = InpMultiRiskPct;
+   string m = L("โหมด 1: ไม้ใหญ่ วันละ 1 ไม้\n", "Mode 1: one bigger trade a day\n");
+   m += StringFormat(L(" - เข้าเฉพาะการเบรกกรอบครั้งแรกของวัน เสี่ยง %.1f%% ต่อไม้\n",
+                       " - Only the first range breakout of the day, %.1f%% risk per trade\n"), one);
+   m += L(" - ผลทดสอบ 2018-2026 (ทุน $3,000 เสี่ยง 1%): กำไร +105%, PF 1.46, DD สูงสุด 16.3%\n",
+          " - Tested 2018-2026 ($3,000, 1% risk): +105%, PF 1.46, max DD 16.3%\n");
+   m += L(" - เหมาะกับ: คนที่อยากได้กำไรสูงสุด รับพอร์ตลดลงระหว่างทางได้ 15-20%\n\n",
+          " - For: maximum profit, accepting 15-20% drawdowns\n\n");
+   m += L("โหมด 2: ค่อยๆ ออกหลายไม้ (ไม้เล็ก)\n", "Mode 2: several smaller trades\n");
+   m += StringFormat(L(" - เข้าทุกครั้งที่เข้าเงื่อนไข ไม่จำกัดไม้ต่อวัน เสี่ยง %.1f%% ต่อไม้ (พัก 20 นาทีหลังแพ้)\n",
+                       " - Every breakout that meets the rules, no daily limit, %.1f%% risk per trade (20-min pause after a loss)\n"), multi);
+   m += L(" - ผลทดสอบ 2018-2026 (ทุน $3,000 เสี่ยง 0.5%): กำไร +74%, PF 1.46, DD สูงสุด 10.5%\n",
+          " - Tested 2018-2026 ($3,000, 0.5% risk): +74%, PF 1.46, max DD 10.5%\n");
+   m += L(" - เหมาะกับ: คนที่อยากให้พอร์ตนิ่ง ยอมกำไรน้อยลง\n\n",
+          " - For: a steadier account, with less profit\n\n");
+   m += L("หมายเหตุ: ไม้ที่ 2-3 ของวันแพ้บ่อยกว่าไม้แรก ความนิ่งของโหมด 2 มาจากไม้ที่เล็กกว่า\n",
+          "Note: the 2nd-3rd trades of a day lose more often; mode 2 is steadier because each trade is smaller\n");
+
+   double atr[];
+   if(GetBuf(hATR, atr) && atr[0] > 0)
+   {
+      double slDist = MathMax(atr[0] * InpSL_ATR, MinStopDistance());
+      double l1 = LotsForRisk(one, slDist), l2 = LotsForRisk(multi, slDist);
+      double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+      m += StringFormat(L("วันนี้ด้วยทุนนี้: โหมด 1 = %.2f lot, โหมด 2 = %.2f lot\n", "Today with this balance: mode 1 = %.2f lot, mode 2 = %.2f lot\n"), l1, l2);
+      if(lotModeRt != LOT_FIXED && l1 <= minLot && l2 <= minLot)
+         m += L("(ทุนยังน้อย ทั้งสองโหมดใช้ Lot ขั้นต่ำเท่ากัน - โหมด 2 จะไม่ได้ไม้เล็กลง)\n",
+                "(Small balance: both modes use the minimum lot - mode 2 will not trade smaller)\n");
+   }
+   return m;
+}
+
+// Panel button: show both modes, then confirm the switch.
+void ChooseStyle(ENUM_TRADE_STYLE target)
+{
+   string title = "GoldScalperM15 - " + L("เลือกโหมดเทรด", "Trade mode");
+   string m = StyleDetails() + "\n";
+   string cur = styleRt == STYLE_MULTI ? "2" : "1";
+   if(target == styleRt)
+   {
+      m += StringFormat(L("ตอนนี้ใช้โหมด %s อยู่แล้ว", "Mode %s is already active"), cur);
+      MessageBox(m, title, MB_OK | MB_ICONINFORMATION);
+      return;
+   }
+   string tgt = target == STYLE_MULTI ? "2" : "1";
+   m += StringFormat(L("ตอนนี้ใช้โหมด %s - เปลี่ยนเป็นโหมด %s ไหม?\n(ไม้ที่ถืออยู่ไม่ถูกปิด มีผลกับไม้ถัดไป)",
+                       "Now using mode %s - switch to mode %s?\n(Open trades stay open; applies to the next trade)"), cur, tgt);
+   if(MessageBox(m, title, MB_YESNO | MB_ICONQUESTION) != IDYES)
+      return;
+   styleRt = target;
+   SaveStyle();
+   Notify(StringFormat(L("เปลี่ยนเป็นโหมด %s แล้ว: %s", "Switched to mode %s: %s"), tgt, StyleLine()));
 }
 
 double NormalizeLots(double lots)
@@ -1253,8 +1392,9 @@ string L(string th, string en)
 }
 
 // Analyses balance vs. the money one stop-loss would cost right now, shows a verdict with
-// a recommendation, and lets the user pick an option. Live/demo only (never in the tester).
-void AccountCheck()
+// a recommendation, and lets the user pick an option (popup) or only prints it to the
+// Experts tab (no answer needed, the EA keeps running). Live/demo only (never in the tester).
+void AccountCheck(bool popup)
 {
    if(MQLInfoInteger(MQL_TESTER))
       return;
@@ -1277,6 +1417,11 @@ void AccountCheck()
    }
    if(bal <= 0 || perLot <= 0)
    {
+      if(!popup)
+      {
+         accountCheckPending = true;   // price data still loading: retry on the next timer tick
+         return;
+      }
       MessageBox(L("ยังวิเคราะห์ไม่ได้ ข้อมูลราคายังโหลดไม่ครบ\nลองกดปุ่ม \"ตรวจบัญชี\" บนแผงอีกครั้งภายหลัง",
                    "Cannot analyse yet - price data is still loading.\nPress \"Account check\" on the panel again later."),
                  title, MB_OK | MB_ICONINFORMATION);
@@ -1304,7 +1449,7 @@ void AccountCheck()
    string usd   = cent ? StringFormat(" (~%.2f USD)", bal / 100.0) : "";
 
    string mode       = lotModeRt == LOT_FIXED ? L("Lot คงที่", "fixed lot")
-                                              : StringFormat(L("คำนวณจาก %.1f%%", "%.1f%% risk"), riskPctRt);
+                                              : StringFormat(L("คำนวณจาก %.1f%%", "%.1f%% risk"), RiskPctEff());
 
    string m = StringFormat(L("บัญชี: %s %s | บาลานซ์ %.2f %s%s | Leverage 1:%I64d\n",
                              "Account: %s %s | balance %.2f %s%s | leverage 1:%I64d\n"),
@@ -1381,6 +1526,26 @@ void AccountCheck()
       }
       else
          buttons = MB_OK | MB_ICONINFORMATION;
+   }
+
+   if(!popup)
+   {
+      string lines[];
+      int n = StringSplit(m, '\n', lines);
+      Print("==== ", title, " ====");
+      for(int i = 0; i < n; i++)
+         if(lines[i] != "")
+            Print(lines[i]);
+      Print(L("(EA ทำงานต่อตามการตั้งค่าเดิม - กดปุ่ม \"ตรวจบัญชี\" บนแผงเพื่อดูทางเลือก)",
+              "(The EA keeps running with your settings - press \"Account check\" on the panel for options)"));
+      Print("==== ", L("โหมดเทรดตอนนี้: ", "Current trade mode: "), StyleLine(), " ====");
+      string sl[];
+      int ns = StringSplit(StyleDetails(), '\n', sl);
+      for(int i = 0; i < ns; i++)
+         if(sl[i] != "")
+            Print(sl[i]);
+      Print(L("(เปลี่ยนโหมดได้ที่ปุ่ม \"โหมด 1\" / \"โหมด 2\" บนแผง)", "(Switch with the \"Mode 1\" / \"Mode 2\" panel buttons)"));
+      return;
    }
 
    if(optYes != "")

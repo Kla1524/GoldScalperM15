@@ -35,7 +35,7 @@ The default lot size is **1% risk per trade** (`InpLotMode`), so the EA adapts t
 | under $1,000 | **Micro or Cent account** (lots 100× smaller) |
 | $1,000+ | Standard, Micro or Cent |
 
-On a Standard account below ~$1,000 the risk guard skips trades; the start-up **account check** popup detects the account type (Standard / Micro / Cent) and tells you what balance or account you need.
+On a Standard account below ~$1,000 the risk guard skips trades; the start-up **account check** (Experts tab, or a popup from the panel button) detects the account type (Standard / Micro / Cent) and tells you what balance or account you need.
 
 | Micro / Cent balance | = Standard balance | Lot sizing | Net 2018–2026 | PF | Max DD |
 |---|---|---|---|---|---|
@@ -52,12 +52,12 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 
 1. **Range:** record the high/low of the Asian session, 00:00–08:00 server time.
 2. **Volatility filter:** trade only on days when daily ATR(14) ≥ 1.6% of price; breakouts fail in quiet markets.
-3. **Entry:** the first M15 candle that closes above the range high (buy) or below the range low (sell). One trade per day by default; set `InpMaxTradesPerDay = 0` to take every breakout that meets the rules. Two styles ship as presets (2018–2026, $3,000, 1-min OHLC):
+3. **Entry:** the first M15 candle that closes above the range high (buy) or below the range low (sell). Two trade modes, switchable with the **Mode 1 / Mode 2** panel buttons (a window explains both before you confirm) or `InpTradeStyle`: mode 1 takes one trade per day, mode 2 takes every breakout that meets the rules at `InpMultiRiskPct` (0.5%) per trade. Results (2018–2026, $3,000, 1-min OHLC):
 
    | Style | Preset | Net | PF | Max DD | Trades |
    |---|---|---|---|---|---|
-   | One bigger trade a day | `Default` (1 trade, 1% risk) | +$3,150 | 1.46 | 16.3% | 504 |
-   | Several smaller trades | `Unlimited_0.5pct` (no limit, 0.5% risk) | +$2,212 | 1.46 | 10.5% | 589 |
+   | One bigger trade a day | Mode 1 / `Default` (1 trade, 1% risk) | +$3,150 | 1.46 | 16.3% | 504 |
+   | Several smaller trades | Mode 2 / `Unlimited_0.5pct` (no limit, 0.5% risk) | +$2,212 | 1.46 | 10.5% | 589 |
    | One smaller trade a day | `Safe_0.5pct` (1 trade, 0.5% risk) | +$2,334 | 1.56 | 9.1% | 504 |
 
    Extra trades of the day come after a failed breakout and lose more often, so the lower drawdown of the multi-trade style comes from the smaller size, not from the extra trades.
@@ -76,8 +76,8 @@ Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable 
 |---|---|
 | 🚦 **Filters** | Trading hours · max spread · trades per day · daily loss limit · Friday close · daily close |
 | 📰 **News filter** | MT5 economic calendar — pauses entries around high-impact USD events (live trading only) |
-| 🖥️ **Control panel** | Live status (incl. "low volatility"), position P/L, today's stats, spread/ATR, next news · **Pause** / **Close all** buttons |
-| 🧭 **Account check** | Start-up popup (TH/EN) that analyses balance, leverage, contract size and the money one stop-loss would cost, then recommends and lets you choose (keep, switch to 1% risk lots, pause, remove) |
+| 🖥️ **Control panel** | Live status (incl. "low volatility"), position P/L, today's stats, spread/ATR, next news · **Pause** / **Close all** / **Mode 1 / Mode 2** buttons |
+| 🧭 **Account check** | Start-up check in the Experts tab, or a popup from the panel button (TH/EN), that analyses balance, leverage, contract size and the money one stop-loss would cost, then recommends and lets you choose (keep, switch to 1% risk lots, pause, remove) |
 | 📱 **Notifications** | MT5 mobile push on open/close, news windows, daily-loss stop, skipped trades (max once a day) |
 
 ## 🚀 Installation

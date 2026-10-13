@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.35 — User Guide
+# GoldScalperM15 v1.37 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -13,11 +13,11 @@ The default lot size is **1% risk per trade**, so the EA adapts to any balance. 
 | $10 – $999 | **Micro** or **Cent** (lots 100× smaller than Standard) |
 | $1,000+ | Standard, Micro or Cent |
 
-On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$1,000 the risk guard (`InpMaxRiskPct`, 5%) skips trades. The **account check** popup at start-up detects Standard / Micro / Cent and shows what you need.
+On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$1,000 the risk guard (`InpMaxRiskPct`, 5%) skips trades. The **account check** at start-up (Experts tab, or a popup from the panel button) detects Standard / Micro / Cent and shows what you need.
 
 **Opening a Micro demo at XM:** on the XM website choose *Open Demo Account* → account type **Micro**, then log in to it in MT5 (you do this yourself). Check in Market Watch that GOLD is available and its contract size is 1. Cent accounts at other brokers show the balance in **USC**; the popup converts it to USD.
 
-**Presets:** `GoldScalperM15_Default.set` (1% risk) and `GoldScalperM15_Safe_0.5pct.set` (0.5% risk, about half the drawdown) and `GoldScalperM15_Unlimited_0.5pct.set` (no daily trade limit, 0.5% risk per trade, for traders who prefer several smaller trades; see the note under `InpMaxTradesPerDay`).
+**Presets:** `GoldScalperM15_Default.set` (1% risk) and `GoldScalperM15_Safe_0.5pct.set` (0.5% risk, about half the drawdown) and `GoldScalperM15_Unlimited_0.5pct.set` (starts in mode 2: several trades at 0.5% risk) — or just use the mode buttons on the panel.
 
 | Micro / Cent balance | = Standard balance | Lot sizing | Net 2018–2026 | PF | Max DD |
 |---|---|---|---|---|---|
@@ -80,6 +80,9 @@ The panel (top-left of the chart) shows:
 **Buttons**
 - **Pause / Resume** — stops opening new trades (open trades are still managed). The setting is remembered across MT5 restarts.
 - **Close all** — closes only this EA's positions, after a confirmation dialog. Your manual trades are not affected.
+- **Mode 1: 1 trade/day / Mode 2: multi** — opens a window describing both modes (tested results, who each suits, the lot each would trade today), then asks to confirm the switch. The green button is the active mode; the choice is remembered across MT5 restarts.
+  - **Mode 1** one bigger trade a day (`InpRiskPct`, 1%): 2018–2026 +105%, PF 1.46, DD 16.3%
+  - **Mode 2** several smaller trades, no daily limit (`InpMultiRiskPct`, 0.5%): +74%, PF 1.46, DD 10.5%
 
 > The panel text in v1.20 is in Thai.
 
@@ -114,7 +117,7 @@ It then gives a verdict and lets you choose what to do:
 | High risk (> 2% per trade) | Switch to 1% risk lots · Keep settings · Pause |
 | Reasonable risk | Optionally switch to 1% risk lots (grows with the account) |
 
-`InpLanguage` selects **ไทย / English** for the popup; `InpAccountCheck` turns the start-up popup on or off. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
+`InpLanguage` selects **ไทย / English** for the popup; `InpAccountCheck` turns the start-up check on or off. At start-up the check is printed to the **Experts** tab and needs no answer, so the EA keeps running when nobody is at the PC; set `InpAccountPopup = true` to get the popup instead (the EA waits until you answer). The panel button always opens the popup with choices. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
 
 ### Loss diagnosis
 
