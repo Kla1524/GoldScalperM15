@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.30"
+#property version   "1.31"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -21,9 +21,17 @@ enum ENUM_STRATEGY
    STRAT_ORB      = 3   // Opening Range Breakout (กรอบราคาช่วงเช้า)
 };
 
+enum ENUM_LOT_MODE
+{
+   LOT_FIXED = 0,  // Lot คงที่
+   LOT_RISK  = 1   // คำนวณจาก % ความเสี่ยง (Balance × Risk% ÷ SL)
+};
+
 //--- inputs
 input group "=== ทั่วไป ==="
-input double          InpLots            = 0.01;      // Lot คงที่
+input ENUM_LOT_MODE   InpLotMode         = LOT_FIXED; // วิธีกำหนด Lot
+input double          InpLots            = 0.01;      // Lot คงที่ (ใช้เมื่อเลือก Lot คงที่)
+input double          InpRiskPct         = 1.0;       // % ความเสี่ยงต่อไม้ (ใช้เมื่อเลือกคำนวณจาก %)
 input ulong           InpMagic           = 20261013;  // Magic number
 input ENUM_TIMEFRAMES InpTF              = PERIOD_M15;// Timeframe สัญญาณ
 input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // กลยุทธ์
@@ -109,6 +117,11 @@ int OnInit()
    if(InpFastEMA >= InpSlowEMA)
    {
       Print("InpFastEMA ต้องน้อยกว่า InpSlowEMA");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(InpLotMode == LOT_RISK && (InpRiskPct <= 0 || (InpMaxRiskPct > 0 && InpRiskPct > InpMaxRiskPct)))
+   {
+      Print("InpRiskPct ต้องมากกว่า 0 และไม่เกิน InpMaxRiskPct (", InpMaxRiskPct, "%) - ไม่อย่างนั้นทุกไม้จะถูกข้าม");
       return INIT_PARAMETERS_INCORRECT;
    }
 
@@ -423,7 +436,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
 
    double slDist = MathMax(atr * InpSL_ATR, minDist);
    double tpDist = MathMax(atr * InpTP_ATR, minDist);
-   double lots   = NormalizeLots(InpLots);
+   double lots   = CalcLots(slDist);
 
    bool   isBuy = type == ORDER_TYPE_BUY;
    double price = isBuy ? ask : bid;
@@ -432,21 +445,13 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    string side  = isBuy ? "BUY" : "SELL";
 
    // Skip when the stop is so far away that one loss would exceed InpMaxRiskPct of balance.
-   if(InpMaxRiskPct > 0)
+   double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
+   double riskMoney = LossPerLot(slDist) * lots;          // money lost if SL is hit (0 = unknown)
+   if(InpMaxRiskPct > 0 && riskMoney > balance * InpMaxRiskPct / 100.0)
    {
-      double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS);
-      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-      double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
-      if(tickVal > 0 && tickSize > 0)
-      {
-         double riskMoney = slDist / tickSize * tickVal * lots;
-         if(riskMoney > balance * InpMaxRiskPct / 100.0)
-         {
-            NotifyFailure(StringFormat("ข้าม %s: SL เสี่ยง %.2f (%.1f%% ของบาลานซ์) เกินกำหนด %.1f%%", side,
-                                       riskMoney, riskMoney / balance * 100.0, InpMaxRiskPct));
-            return;
-         }
-      }
+      NotifyFailure(StringFormat("ข้าม %s: SL เสี่ยง %.2f (%.1f%% ของบาลานซ์) เกินกำหนด %.1f%%", side,
+                                 riskMoney, riskMoney / balance * 100.0, InpMaxRiskPct));
+      return;
    }
    // Skip (and warn at most once a day) when free margin can't cover the order.
    double margin;
@@ -463,9 +468,11 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    if(ok)
    {
       if(InpNotifyTrades)
-         Notify(StringFormat("เปิด %s %.2f lot @ %s | SL %s | TP %s", side, lots,
+         Notify(StringFormat("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.1f%%)", side, lots,
                              DoubleToString(trade.ResultPrice() > 0 ? trade.ResultPrice() : price, _Digits),
-                             DoubleToString(sl, _Digits), DoubleToString(tp, _Digits)));
+                             DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
+                             riskMoney, AccountInfoString(ACCOUNT_CURRENCY),
+                             balance > 0 ? riskMoney / balance * 100.0 : 0));
    }
    else
       NotifyFailure(StringFormat("เปิด %s ไม่สำเร็จ: %d %s", side, trade.ResultRetcode(),
@@ -711,7 +718,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.30", clrGold);
+   SetLine(0, "GoldScalper M15  v1.31", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StringFormat("วันนี้: %d/%d ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay, profitToday, ccy),
@@ -943,12 +950,34 @@ double NormPrice(double price)
    return NormalizeDouble(MathRound(price / tick) * tick, _Digits);
 }
 
+// Money lost per 1.0 lot if price moves slDist against the position
+// (XM GOLD: 1 point = 0.01 = $1 per lot, same as the lot-size sheet). 0 if unknown.
+double LossPerLot(double slDist)
+{
+   double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS);
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickVal <= 0 || tickSize <= 0)
+      return 0;
+   return slDist / tickSize * tickVal;
+}
+
+// Lot size: fixed, or Balance × Risk% ÷ (loss per lot at the SL), rounded DOWN to the volume step.
+double CalcLots(double slDist)
+{
+   if(InpLotMode == LOT_FIXED)
+      return NormalizeLots(InpLots);
+   double perLot = LossPerLot(slDist);
+   if(perLot <= 0)
+      return NormalizeLots(InpLots);
+   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * InpRiskPct / 100.0 / perLot);
+}
+
 double NormalizeLots(double lots)
 {
    double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    double minL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   lots = MathFloor(lots / step) * step;
+   lots = MathFloor(lots / step + 1e-9) * step;           // epsilon: 0.1/0.01 must not floor to 9
    return MathMax(minL, MathMin(maxL, lots));
 }
 //+------------------------------------------------------------------+

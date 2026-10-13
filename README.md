@@ -44,7 +44,8 @@ With a standard account (0.01 lot = 1 oz of gold), one stop-loss typically costs
 3. **Entry:** the first M15 candle that closes above the range high (buy) or below the range low (sell). Maximum one trade per day.
 4. **Stop:** 4 × ATR(14, M15). No take-profit, breakeven or trailing stop: winners run.
 5. **Exit:** all positions are closed at **20:00 server time**, so no overnight swap. XM's gold swap was the main reason holding strategies failed in testing.
-6. **Risk guard:** skip any trade whose stop would lose more than 5% of balance.
+6. **Position size:** fixed lot (default 0.01) or **risk-based**: Lot = Balance × Risk% ÷ SL points (`InpLotMode`, `InpRiskPct`). In tests at $3,000, 1% risk gave PF 1.66 / DD 10.8% and 2% risk PF 1.55 / DD 17.9% (real ticks, Oct 2024 – Oct 2026).
+7. **Risk guard:** skip any trade whose stop would lose more than 5% of balance.
 
 Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable in tests), Donchian breakout, RSI(2) pullback.
 
@@ -95,6 +96,5 @@ USER_GUIDE.md               User guide (English)
 ## 🗺️ Roadmap
 
 - [ ] Telegram notifications & remote control
-- [ ] Optional risk-based lot sizing
 - [ ] Trade journal export (CSV)
 - [ ] English / Thai language switch for the panel and alerts

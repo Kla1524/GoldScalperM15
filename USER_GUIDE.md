@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.30 — User Guide
+# GoldScalperM15 v1.31 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -73,6 +73,8 @@ The panel (top-left of the chart) shows:
 | `InpSL_ATR` | 4.0 | Stop-loss = 4 × M15 ATR; no TP / breakeven / trailing |
 | `InpMaxTradesPerDay` | 1 | One breakout trade per day |
 | `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
+| `InpLotMode` | Fixed lot | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
+| `InpRiskPct` | 1.0 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
 | `InpMaxRiskPct` | 5.0 | Skip a trade if its stop would lose > 5% of balance |
 | `InpMaxSpread` | 1.00 | Maximum spread in price units |
 
