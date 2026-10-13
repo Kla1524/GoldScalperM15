@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.34 — User Guide
+# GoldScalperM15 v1.35 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -17,7 +17,7 @@ On a Standard account one stop-loss at the minimum lot costs $15–$100+, so bel
 
 **Opening a Micro demo at XM:** on the XM website choose *Open Demo Account* → account type **Micro**, then log in to it in MT5 (you do this yourself). Check in Market Watch that GOLD is available and its contract size is 1. Cent accounts at other brokers show the balance in **USC**; the popup converts it to USD.
 
-**Presets:** `GoldScalperM15_Default.set` (1% risk) and `GoldScalperM15_Safe_0.5pct.set` (0.5% risk, about half the drawdown).
+**Presets:** `GoldScalperM15_Default.set` (1% risk) and `GoldScalperM15_Safe_0.5pct.set` (0.5% risk, about half the drawdown) and `GoldScalperM15_Unlimited_0.5pct.set` (no daily trade limit, 0.5% risk per trade, for traders who prefer several smaller trades; see the note under `InpMaxTradesPerDay`).
 
 | Micro / Cent balance | = Standard balance | Lot sizing | Net 2018–2026 | PF | Max DD |
 |---|---|---|---|---|---|
@@ -91,7 +91,7 @@ The panel (top-left of the chart) shows:
 | `InpRangeStartHour` / `InpRangeEndHour` | 0 / 8 | Range window, server time |
 | `InpMinDailyATRPct` | 1.6 | Trade only when daily ATR ≥ 1.6% of price |
 | `InpSL_ATR` | 4.0 | Stop-loss = 4 × M15 ATR; no TP / breakeven / trailing |
-| `InpMaxTradesPerDay` | 1 | One breakout trade per day |
+| `InpMaxTradesPerDay` | 1 | Trades per day (0 = unlimited: every breakout that meets the rules, still with the 20-min loss cooldown). Tested 2018–2026 at 1% risk: 1 trade PF 1.46 / DD 16.3%, unlimited PF 1.36 / DD 19.6%; unlimited at 0.5% risk: PF 1.46 / DD 10.5%. Second trades come after a failed breakout in a choppy day and lose more often, so use a smaller risk % with unlimited. |
 | `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
 | `InpLotMode` | Risk % | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
 | `InpRiskPct` | 1.0 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |

@@ -52,7 +52,15 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 
 1. **Range:** record the high/low of the Asian session, 00:00–08:00 server time.
 2. **Volatility filter:** trade only on days when daily ATR(14) ≥ 1.6% of price; breakouts fail in quiet markets.
-3. **Entry:** the first M15 candle that closes above the range high (buy) or below the range low (sell). Maximum one trade per day.
+3. **Entry:** the first M15 candle that closes above the range high (buy) or below the range low (sell). One trade per day by default; set `InpMaxTradesPerDay = 0` to take every breakout that meets the rules. Two styles ship as presets (2018–2026, $3,000, 1-min OHLC):
+
+   | Style | Preset | Net | PF | Max DD | Trades |
+   |---|---|---|---|---|---|
+   | One bigger trade a day | `Default` (1 trade, 1% risk) | +$3,150 | 1.46 | 16.3% | 504 |
+   | Several smaller trades | `Unlimited_0.5pct` (no limit, 0.5% risk) | +$2,212 | 1.46 | 10.5% | 589 |
+   | One smaller trade a day | `Safe_0.5pct` (1 trade, 0.5% risk) | +$2,334 | 1.56 | 9.1% | 504 |
+
+   Extra trades of the day come after a failed breakout and lose more often, so the lower drawdown of the multi-trade style comes from the smaller size, not from the extra trades.
 4. **Stop:** 4 × ATR(14, M15). No take-profit, breakeven or trailing stop: winners run.
 5. **Exit:** all positions are closed at **20:00 server time**, so no overnight swap. XM's gold swap was the main reason holding strategies failed in testing.
 6. **Position size:** **risk-based by default (1%)** or fixed lot: Lot = Balance × Risk% ÷ SL points (`InpLotMode`, `InpRiskPct`). In tests at $3,000, 1% risk gave PF 1.66 / DD 10.8% and 2% risk PF 1.55 / DD 17.9% (real ticks, Oct 2024 – Oct 2026).

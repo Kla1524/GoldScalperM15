@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.34"
+#property version   "1.35"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -77,7 +77,7 @@ input double InpMaxSpread       = 1.00; // สเปรดสูงสุด (�
 input double InpMinATR          = 0.0;  // ATR ขั้นต่ำ (หน่วยราคา, 0 = ปิด) กันตลาดนิ่ง
 input double InpMinDailyATRPct  = 1.6;  // ATR รายวันขั้นต่ำ เป็น % ของราคา (0 = ปิด) เทรดเฉพาะวันที่ผันผวนพอ
 input double InpMaxRiskPct      = 5.0;  // ข้ามไม้ถ้า SL เสียเกิน % ของบาลานซ์ (0 = ปิด)
-input int    InpMaxTradesPerDay = 1;    // จำนวนไม้สูงสุดต่อวัน
+input int    InpMaxTradesPerDay = 1;    // จำนวนไม้สูงสุดต่อวัน (0 = ไม่จำกัด)
 input double InpMaxDailyLossPct = 3.0;  // หยุดเทรดเมื่อขาดทุนวันนี้ >= % ของบาลานซ์ (0 = ปิด)
 input int    InpDailyCloseHour  = 20;   // ปิดออเดอร์ทุกวันเมื่อถึงชั่วโมงนี้ (หลบ swap, -1 = ปิด)
 input bool   InpCloseFriday     = true; // ปิดออเดอร์ก่อนตลาดปิดวันศุกร์
@@ -825,7 +825,7 @@ string BlockReason(int tradesToday, double profitToday)
    if(TimeCurrent() < cooldownUntil)      return "พักหลังแพ้ ถึง " + TimeToString(cooldownUntil, TIME_MINUTES);
    if(newsBlocked)                        return "งดเทรด ช่วงข่าว";
    if(DailyLossHit(profitToday))          return "ถึงเพดานขาดทุนวันนี้";
-   if(tradesToday >= InpMaxTradesPerDay)  return "ครบจำนวนไม้วันนี้";
+   if(InpMaxTradesPerDay > 0 && tradesToday >= InpMaxTradesPerDay)  return "ครบจำนวนไม้วันนี้";
    if(!InSession())                       return "นอกเวลาเทรด";
    if(!SpreadOK())                        return "สเปรดกว้างเกิน";
    if(!VolatilityOK())                    return "ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง";
@@ -980,10 +980,10 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.34", clrGold);
+   SetLine(0, "GoldScalper M15  v1.35", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
-   SetLine(3, StringFormat("วันนี้: %d/%d ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay, profitToday, ccy),
+   SetLine(3, StringFormat("วันนี้: %d/%s ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay > 0 ? (string)InpMaxTradesPerDay : "∞", profitToday, ccy),
            profitToday < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(4, StringFormat("สเปรด: %.2f / %.2f | ATR: %s", spread, InpMaxSpread, atrText),
            spread > InpMaxSpread ? clrOrange : clrWhiteSmoke);
