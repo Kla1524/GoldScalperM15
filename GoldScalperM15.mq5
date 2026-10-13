@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.37"
+#property version   "1.38"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -115,6 +115,11 @@ input ENUM_LANG InpLanguage       = LANG_TH; // ภาษาหน้าต่�
 input bool   InpAccountCheck    = true;  // วิเคราะห์บัญชีตอนเริ่ม / Account check on start
 input bool   InpAccountPopup    = false; // ตอนเริ่ม: true = หน้าต่างเด้ง (ต้องกดตอบ), false = แสดงในแท็บ Experts / Start-up check as popup (else Experts tab)
 
+input group "=== ทดสอบระบบ (บัญชี Demo เท่านั้น) ==="
+input bool   InpTestMode        = false; // ทดสอบระบบ: เปิด-ปิดไม้จริงบน Demo ทันทีโดยไม่รอสัญญาณ
+input int    InpTestTrades      = 3;     // จำนวนไม้ทดสอบ (สลับ BUY / SELL)
+input int    InpTestHoldMin     = 2;     // ถือไม้ทดสอบกี่นาทีแล้วปิด
+
 input group "=== วิเคราะห์ไม้แพ้ ==="
 input int    InpLossCooldownMin = 20;   // พักหลังไม้แพ้ (นาที, 0 = ปิด)
 input bool   InpJournal         = true; // บันทึกทุกไม้ + สาเหตุที่แพ้ ลง CSV (Common\Files)
@@ -162,6 +167,8 @@ string   gvPaused        = "";
 ENUM_TRADE_STYLE styleRt = STYLE_ONE;   // mode in effect (input, or chosen with the panel buttons)
 string   gvStyle         = "";
 string   gvStyleIn       = "";          // the input value when the mode was chosen
+int      testDone        = 0;           // system-test trades opened so far
+bool     testFinished    = false;
 int      lossNotifiedDay = -1;
 bool     showPanel       = false;
 
@@ -291,7 +298,62 @@ void OnTimer()
       accountCheckDone    = true;
       AccountCheck(InpAccountPopup);
    }
+   TestStep();
    RefreshStatus();
+}
+
+//+------------------------------------------------------------------+
+//| System test (demo only): opens InpTestTrades real trades one at a |
+//| time through the normal OpenTrade path (lot sizing, SL, journal,  |
+//| notifications, loss diagnosis, cooldown), holds each for          |
+//| InpTestHoldMin minutes, then closes it. Ignores signal and hours. |
+//+------------------------------------------------------------------+
+bool TestActive()
+{
+   return InpTestMode && !testFinished && !MQLInfoInteger(MQL_TESTER);
+}
+
+void TestStep()
+{
+   if(!TestActive())
+      return;
+   if(AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
+   {
+      testFinished = true;
+      Notify("ไม่ทดสอบ: โหมดทดสอบระบบใช้ได้เฉพาะบัญชี Demo (บัญชีนี้เป็นบัญชีจริง)");
+      return;
+   }
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !IsMine())
+         continue;
+      if(TimeCurrent() - (datetime)PositionGetInteger(POSITION_TIME) >= InpTestHoldMin * 60)
+      {
+         Print(StringFormat("ทดสอบ: ครบ %d นาที - ปิดไม้ #%I64u", InpTestHoldMin, ticket));
+         trade.PositionClose(ticket);
+      }
+      return;
+   }
+
+   if(testDone >= InpTestTrades)
+   {
+      testFinished = true;
+      Notify(StringFormat("ทดสอบระบบเสร็จ %d ไม้ - ปิด InpTestMode แล้ว EA จะกลับไปเทรดตามสัญญาณ", testDone));
+      return;
+   }
+   if(paused || TimeCurrent() < cooldownUntil)
+      return;   // the loss cooldown is part of what is being tested
+
+   double atr[];
+   if(!GetBuf(hATR, atr) || atr[0] <= 0)
+      return;
+   testDone++;
+   ENUM_ORDER_TYPE type = (testDone % 2 == 1) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   Notify(StringFormat("ทดสอบระบบ ไม้ที่ %d/%d: เปิด %s (ถือ %d นาที)", testDone, InpTestTrades,
+                       type == ORDER_TYPE_BUY ? "BUY" : "SELL", InpTestHoldMin));
+   OpenTrade(type, atr[0]);
 }
 
 //+------------------------------------------------------------------+
@@ -856,6 +918,7 @@ void ManagePositions()
 // Why no new trade may be opened right now ("" = allowed).
 string BlockReason(int tradesToday, double profitToday)
 {
+   if(TestActive())                       return StringFormat("ทดสอบระบบ %d/%d ไม้", testDone, InpTestTrades);
    if(paused)                             return "หยุดชั่วคราว (กดปุ่ม)";
    if(TimeCurrent() < cooldownUntil)      return "พักหลังแพ้ ถึง " + TimeToString(cooldownUntil, TIME_MINUTES);
    if(newsBlocked)                        return "งดเทรด ช่วงข่าว";
@@ -1019,7 +1082,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.37", clrGold);
+   SetLine(0, "GoldScalper M15  v1.38", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StyleLine(), clrKhaki);

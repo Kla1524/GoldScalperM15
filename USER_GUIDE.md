@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.37 — User Guide
+# GoldScalperM15 v1.38 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -85,6 +85,8 @@ The panel (top-left of the chart) shows:
   - **Mode 2** several smaller trades, no daily limit (`InpMultiRiskPct`, 0.5%): +74%, PF 1.46, DD 10.5%
 
 > The panel text in v1.20 is in Thai.
+
+**System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 
 ## 4. Strategy and key settings
 
