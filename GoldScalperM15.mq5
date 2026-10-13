@@ -7,9 +7,11 @@
 //|  session / spread / daily-trade / daily-loss / news filters,      |
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
-#property copyright "Personal EA"
+#property copyright "Copyright 2026 Thapanapat Pumulna (Kla1524) - MIT License"
+#property link      "https://github.com/Kla1524/GoldScalperM15"
 #property version   "1.38"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
+#property description "For education and research only - not investment advice."
 
 #include <Trade\Trade.mqh>
 

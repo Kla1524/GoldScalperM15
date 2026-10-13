@@ -2,7 +2,9 @@
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
-> ⚠️ Backtests (2018–2026, PF 1.56, max DD ~10% on $3,000) do not guarantee future results. Always run on a demo account first.
+> ⚠️ **For education and research only.** Not investment advice and not an invitation or solicitation to invest. Trading leveraged products carries a high risk of loss; backtests do not guarantee future results. Always test on a demo account first. You are solely responsible for your trading.
+>
+> **License:** [MIT](LICENSE) — free to use, modify and share, keeping the credit to **Thapanapat Pumulna / Kla1524**.
 
 ## Capital and account type (from $10)
 
