@@ -10,7 +10,7 @@
 *On-chart panel (Thai UI): status, open trade, trade mode, today's trades and P/L, spread/ATR, next news event, and the Pause / Close all / Mode 1 / Mode 2 / Account check buttons.*
 with a volatility filter, per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
-> ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results.
+> ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 
@@ -120,14 +120,15 @@ presets/                    Validated default preset
 tools/backtest.ps1          Backtest / optimization automation
 USER_GUIDE.md               User guide (English)
 CHANGELOG.md                What changed in each version
-LICENSE                     MIT license + trading disclaimer
+LICENSE                     MIT license
+DISCLAIMER.md               Education-only / not investment advice (EN + TH)
 docs/images/                Screenshots
 คู่มือ_GoldScalperM15.md      User guide (Thai)
 ```
 
 ## 📄 License
 
-[MIT](LICENSE) — free to use, modify and share, including commercially, as long as the copyright notice (credit to **Thapanapat Pumulna / Kla1524**) is kept. Provided as is, with no warranty. The trading disclaimer above applies to every use.
+[MIT](LICENSE) — free to use, modify and share, including commercially, as long as the copyright notice (credit to **Thapanapat Pumulna / Kla1524**) is kept. Provided as is, with no warranty. The [disclaimer](DISCLAIMER.md) applies to every use.
 
 ## 🗺️ Roadmap
 
