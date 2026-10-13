@@ -1,6 +1,8 @@
 # GoldScalperM15
 
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
+
+**Current version: v1.38** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 with a volatility filter, per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
 > ⚠️ **Disclaimer** — This project is for educational purposes only and is not financial advice. Backtest results do not guarantee future performance. Gold is highly volatile: always run on a demo account first. You are solely responsible for your trading results.
@@ -90,7 +92,7 @@ Attach the EA to a **GOLD/XAUUSD** chart, enable **Allow Algo Trading**. The def
 
 > Times are **broker server time**. The defaults were validated on XM Global (GMT+2/+3). Other brokers may need the hours adjusted.
 
-📖 Full guide: [USER_GUIDE.md](USER_GUIDE.md) · Thai: [คู่มือ_GoldScalperM15.md](คู่มือ_GoldScalperM15.md)
+📖 Full guide: [USER_GUIDE.md](USER_GUIDE.md) · Thai: [คู่มือ_GoldScalperM15.md](คู่มือ_GoldScalperM15.md) · What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
 ## 🧪 Reproducing the backtests
 
@@ -112,11 +114,12 @@ install_to_MT5.bat          One-click compile + install helper (Windows)
 presets/                    Validated default preset
 tools/backtest.ps1          Backtest / optimization automation
 USER_GUIDE.md               User guide (English)
+CHANGELOG.md                What changed in each version
 คู่มือ_GoldScalperM15.md      User guide (Thai)
 ```
 
 ## 🗺️ Roadmap
 
 - [ ] Telegram notifications & remote control
-- [ ] Trade journal export (CSV)
+- [x] Trade journal export (CSV) — v1.32
 - [ ] English / Thai language switch for the panel and alerts (popup already supports both)
