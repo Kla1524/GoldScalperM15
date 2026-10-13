@@ -1,13 +1,13 @@
 # GoldScalperM15
 
-![Version](https://img.shields.io/badge/version-1.38-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.39-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
 
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
 
-**Current version: v1.38** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+**Current version: v1.39** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 
 ![On-chart control panel on a GOLD M15 chart](docs/images/panel.png)
-*On-chart panel (Thai UI): status, open trade, trade mode, today's trades and P/L, spread/ATR, next news event, and the Pause / Close all / Mode 1 / Mode 2 / Account check buttons.*
+*On-chart panel (English by default, Thai with `InpLanguage`): status, open trade, trade mode, today's trades and P/L, spread/ATR, next news event, and the Pause / Close all / Mode 1 / Mode 2 / Account check buttons.*
 with a volatility filter, per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
 > ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results. Full text: [DISCLAIMER.md](DISCLAIMER.md).
@@ -33,27 +33,28 @@ Net profit by year (2018–2026, $3,000): 2018: no trades · 2019: +49 · 2020: 
 - Fixed 0.01 lot means risk per trade grows with gold's volatility; the largest single loss in 2026 was about $230.
 - The news filter cannot run in the Strategy Tester, so it was not part of these results.
 
-## 💰 Any balance from $10: Standard, Micro and Cent accounts
+## 💰 Account size: Standard, Micro and Cent accounts
 
-The default lot size is **1% risk per trade** (`InpLotMode`), so the EA adapts to the balance automatically. What decides whether a small balance works is the **account type**, because the smallest lot (0.01) on a Standard account already risks $15–$100+ per stop-loss:
+The lot size is **risk-based**: 1% of equity per trade in mode 1, 0.5% in mode 2. Since v1.39 the risk is **strict** (`InpStrictRisk`). Real risk = SL from the actual entry price + slippage allowance + commission. If even the minimum lot (0.01) would risk more than the target %, the EA **skips the trade and says why**; it never forces it. On a Standard account 0.01 lot risks about $15–$100+ per stop, so the account type decides what balance is enough:
 
 | Balance | Use |
 |---|---|
-| under $1,000 | **Micro or Cent account** (lots 100× smaller) |
-| $1,000+ | Standard, Micro or Cent |
+| under ~$3,000 | **Micro or Cent account** (lots 100× smaller): from ~$30 |
+| ~$3,000+ | Standard, Micro or Cent |
 
-On a Standard account below ~$1,000 the risk guard skips trades; the start-up **account check** (Experts tab, or a popup from the panel button) detects the account type (Standard / Micro / Cent) and tells you what balance or account you need.
+Below that, most signals are skipped (each skip is reported with the money at risk). The start-up **account check** (Experts tab, or a popup from the panel button) detects the account type (Standard / Micro / Cent) and tells you what balance or account you need.
 
-| Micro / Cent balance | = Standard balance | Lot sizing | Net 2018–2026 | PF | Max DD |
+Results with the strict risk rule (v1.39, mode 1, 1% risk, 2018–2026, 1-min OHLC):
+
+| Micro / Cent balance | = Standard balance | Net 2018–2026 | PF | Max DD | Trades |
 |---|---|---|---|---|---|
-| $10 | $1,000 | min lot (≈1–3% risk) | +203% | 1.52 | 18.0% |
-| $20 | $2,000 | 1% risk | +120% | 1.47 | 14.8% |
-| $50 | $5,000 | 1% risk | +108% | 1.43 | 16.1% |
-| $100 | $10,000 | 1% risk | +116% | 1.43 | 16.5% |
-| $100 | $10,000 | **0.5% risk (Safe preset)** | +41% | 1.40 | **8.2%** |
-| $1,000 | $100,000 | 1% risk | +134% | 1.45 | 17.1% |
+| $10 | $1,000 | +18% | 1.29 | 12.6% | 151 (most skipped: min lot > 1%) |
+| $30 | $3,000 | +89% | 1.45 | 14.8% | 473 |
+| $100 | $10,000 | +112% | 1.44 | 16.2% | 503 |
 
-A Micro account is a Standard account scaled down 100× (contract 1 oz instead of 100 oz), and a Cent account counts the balance in US cents, so $10 on Micro/Cent behaves like $1,000 on Standard. That is how these 8.8-year tests were run (1-minute OHLC, XM GOLD). A direct real-tick test of $10 on a Micro contract (Aug–Oct 2026) gave +$1.79, PF 1.41, DD 12.2%.
+Real ticks Oct 2024 – Oct 2026, $3,000: +39%, PF 1.62, DD 10.1%. Mode 2 (0.5% per trade) needs about twice the balance of mode 1 to trade normally; at $3,000 it skipped most signals (+5%, PF 1.11).
+
+A Micro account is a Standard account scaled down 100× (contract 1 oz instead of 100 oz), and a Cent account counts the balance in US cents, so $10 on Micro/Cent behaves like $1,000 on Standard. That is how these 8.8-year tests were run (1-minute OHLC, XM GOLD).
 
 ## ✨ Strategy (default)
 
@@ -70,8 +71,8 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
    Extra trades of the day come after a failed breakout and lose more often, so the lower drawdown of the multi-trade style comes from the smaller size, not from the extra trades.
 4. **Stop:** 4 × ATR(14, M15). No take-profit, breakeven or trailing stop: winners run.
 5. **Exit:** all positions are closed at **20:00 server time**, so no overnight swap. XM's gold swap was the main reason holding strategies failed in testing.
-6. **Position size:** **risk-based by default (1%)** or fixed lot: Lot = Balance × Risk% ÷ SL points (`InpLotMode`, `InpRiskPct`). In tests at $3,000, 1% risk gave PF 1.66 / DD 10.8% and 2% risk PF 1.55 / DD 17.9% (real ticks, Oct 2024 – Oct 2026).
-7. **Risk guard:** skip any trade whose stop would lose more than 5% of balance.
+6. **Position size:** risk-based by default: Lot = Equity × Risk% ÷ (SL + slippage + commission per lot), rounded down (`InpLotMode`, `InpRiskPct`, `InpMultiRiskPct`). **Strict:** if the minimum lot would exceed the target %, the trade is skipped with the reason (`InpStrictRisk`).
+7. **Risk guards:** daily loss budget: a trade is skipped if its stop would push today's loss past the 3% daily limit (`InpMaxDailyLossPct`); hard cap of 5% of equity per trade (`InpMaxRiskPct`); every close is verified and retried; one order at a time across charts; the loss cooldown and pause survive an MT5 restart.
 8. **Confidence score (0–4):** +1 each for trading with the D1 trend, with the H1 trend, ADX(H1) 20–30 and RSI ≥ 70 in the trade direction; entries need ≥ 1 (`InpMinConfidence`). Each condition separated winners from losers in both 2018–2023 and 2024–2026. Score-0 trades lost money in both periods. The filter improved 2018–2026 (PF 1.56 → 1.63) but cost some profit in the 2024–2026 rally.
 9. **Loss diagnosis & journal:** every loss is tagged with reasons (failed breakout, against trend, gave back profit, …) in the phone alert and in a CSV journal; 20-minute cooldown after a loss.
 
@@ -128,10 +129,10 @@ docs/images/                Screenshots
 
 ## 📄 License
 
-[MIT](LICENSE) — free to use, modify and share, including commercially, as long as the copyright notice (credit to **Thapanapat Pumulna / Kla1524**) is kept. Provided as is, with no warranty. The [disclaimer](DISCLAIMER.md) applies to every use.
+[MIT](LICENSE) — free to use, modify and share, including commercially, as long as the copyright notice (credit to **Kla1524**) is kept. Provided as is, with no warranty. The [disclaimer](DISCLAIMER.md) applies to every use.
 
 ## 🗺️ Roadmap
 
 - [ ] Telegram notifications & remote control
 - [x] Trade journal export (CSV) — v1.32
-- [ ] English / Thai language switch for the panel and alerts (popup already supports both)
+- [x] English / Thai for the panel, alerts and windows — v1.39 (English by default)

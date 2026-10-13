@@ -1,21 +1,21 @@
-# GoldScalperM15 v1.38 — User Guide
+# GoldScalperM15 v1.39 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
 > ⚠️ **For education and research only.** Not investment advice and not an invitation or solicitation to invest. Trading leveraged products carries a high risk of loss; backtests do not guarantee future results. Always test on a demo account first. You are solely responsible for your trading.
 >
-> **License:** [MIT](LICENSE) — free to use, modify and share, keeping the credit to **Thapanapat Pumulna / Kla1524**.
+> **License:** [MIT](LICENSE) — free to use, modify and share, keeping the credit to **Kla1524**.
 
-## Capital and account type (from $10)
+## Capital and account type
 
-The default lot size is **1% risk per trade**, so the EA adapts to any balance. Pick the account type by balance:
+Lot size is **1% of equity per trade** in mode 1 and 0.5% in mode 2, counting the SL, a slippage allowance and commission. With the default **strict risk** rule (`InpStrictRisk`), a trade is skipped, with the reason, when even the minimum lot would exceed that %. Pick the account type by balance:
 
 | Balance | Account |
 |---|---|
-| $10 – $999 | **Micro** or **Cent** (lots 100× smaller than Standard) |
-| $1,000+ | Standard, Micro or Cent |
+| under ~$3,000 | **Micro** or **Cent** (lots 100× smaller than Standard), from ~$30 |
+| ~$3,000+ | Standard, Micro or Cent |
 
-On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$1,000 the risk guard (`InpMaxRiskPct`, 5%) skips trades. The **account check** at start-up (Experts tab, or a popup from the panel button) detects Standard / Micro / Cent and shows what you need.
+On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$3,000 most signals are skipped by the strict 1% rule. The **account check** at start-up (Experts tab, or a popup from the panel button) detects Standard / Micro / Cent and shows what you need.
 
 **Opening a Micro demo at XM:** on the XM website choose *Open Demo Account* → account type **Micro**, then log in to it in MT5 (you do this yourself). Check in Market Watch that GOLD is available and its contract size is 1. Cent accounts at other brokers show the balance in **USC**; the popup converts it to USD.
 
@@ -86,7 +86,7 @@ The panel (top-left of the chart) shows:
   - **Mode 1** one bigger trade a day (`InpRiskPct`, 1%): 2018–2026 +105%, PF 1.46, DD 16.3%
   - **Mode 2** several smaller trades, no daily limit (`InpMultiRiskPct`, 0.5%): +74%, PF 1.46, DD 10.5%
 
-> The panel text is in Thai; the account-check and trade-mode windows follow `InpLanguage` (Thai / English).
+> The panel, phone alerts and windows are in English by default; set `InpLanguage = Thai` for Thai.
 
 **System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 
@@ -102,7 +102,10 @@ The panel (top-left of the chart) shows:
 | `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
 | `InpLotMode` | Risk % | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
 | `InpRiskPct` | 1.0 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
-| `InpMaxRiskPct` | 5.0 | Skip a trade if its stop would lose > 5% of balance |
+| `InpStrictRisk` | true | Skip a trade if its real risk (SL + slippage + commission, vs equity) exceeds the current mode's %; the skip is reported with the money at risk |
+| `InpSlippagePts` | 30 | Slippage allowance at the SL (points), included in the real risk |
+| `InpCommissionLot` | 0 | Round-turn commission per lot (0 on XM Standard) |
+| `InpMaxRiskPct` | 5.0 | Hard cap: skip a trade if its stop would lose > 5% of equity |
 | `InpMaxSpread` | 1.00 | Maximum spread in price units |
 | `InpMinConfidence` | 1 | Confidence score 0–4 required to enter: +1 each for D1 trend (EMA50), H1 trend (EMA200), ADX H1 20–30, RSI(14) ≥ 70 in trade direction. 0 = off |
 | `InpLossCooldownMin` | 20 | Pause new entries for N minutes after a losing trade |
@@ -121,7 +124,7 @@ It then gives a verdict and lets you choose what to do:
 | High risk (> 2% per trade) | Switch to 1% risk lots · Keep settings · Pause |
 | Reasonable risk | Optionally switch to 1% risk lots (grows with the account) |
 
-`InpLanguage` selects **ไทย / English** for the popup; `InpAccountCheck` turns the start-up check on or off. At start-up the check is printed to the **Experts** tab and needs no answer, so the EA keeps running when nobody is at the PC; set `InpAccountPopup = true` to get the popup instead (the EA waits until you answer). The panel button always opens the popup with choices. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
+`InpLanguage` selects **English / ไทย** for the panel, alerts and windows (English by default); `InpAccountCheck` turns the start-up check on or off. At start-up the check is printed to the **Experts** tab and needs no answer, so the EA keeps running when nobody is at the PC; set `InpAccountPopup = true` to get the popup instead (the EA waits until you answer). The panel button always opens the popup with choices. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
 
 ### Loss diagnosis
 

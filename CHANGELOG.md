@@ -2,6 +2,29 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.39 — Strict risk control, safety checks, English by default
+- **Strict risk** (`InpStrictRisk`, on by default): the real risk of a trade must not exceed the current mode's % (1% in mode 1, 0.5% in mode 2).
+  - Real risk = SL distance from the actual entry price + slippage allowance (`InpSlippagePts`) + commission (`InpCommissionLot`), measured against **equity**.
+  - Lots are sized from equity the same way and rounded down.
+  - If even the minimum lot would exceed the target, the trade is **skipped, never forced**. The phone alert gives the money at risk and the equity needed.
+- **Daily loss budget:** a trade is skipped if its stop would push today's loss past `InpMaxDailyLossPct`. When the limit is reached, new trades stop; open trades keep their SL.
+- **Verified closes:** daily, Friday, news and button closes confirm that the position is gone, retry up to 3 times, keep retrying every tick and alert on failure.
+- **No duplicate orders:** a terminal-wide lock stops two charts (same symbol + magic) from sending orders together. Positions are re-checked before sending.
+- **Restart-safe:** the loss cooldown survives an MT5 restart, like the pause and the trade mode already did.
+- **Stale positions:** when the EA starts, any position left from while it was not running is reported and closed by the daily-close rule.
+- **English by default** for the panel, phone alerts, windows, inputs and logs. `InpLanguage = Thai` switches to Thai.
+- Regression: with the new checks off, results are identical to v1.38. Effect of the new defaults (2018–2026, mode 1):
+
+  | Balance | Before (v1.38) | v1.39 |
+  |---|---|---|
+  | $3,000 | +105%, PF 1.46, DD 16.3%, 504 trades | **+89%, PF 1.45, DD 14.8%**, 473 trades |
+  | $1,000 | trades at ~3% risk | +18%, PF 1.29, DD 12.6%, 151 trades (most skipped) |
+  | $10,000 | — | +112%, PF 1.44, DD 16.2%, 503 trades |
+
+  Real ticks Oct 2024 – Oct 2026, $3,000: +39%, PF 1.62, DD 10.1%.
+- The daily budget skipped one trade in 2018–2026. On 30 Jan 2026 a single stop would have cost more than the whole 3% daily limit.
+- Credits: the project is published under the name **Kla1524**.
+
 ## v1.38 — Demo system test mode
 - **`InpTestMode`** (demo accounts only, refused on real accounts): opens `InpTestTrades` real trades one at a time, alternating BUY/SELL. Each is held `InpTestHoldMin` minutes and then closed, ignoring signals and trading hours. The trades go through the normal order path, so the test checks lot sizing, SL, phone alerts, loss diagnosis, the loss cooldown and the journal.
 - Verified on an XM demo: 3 test trades opened and closed. Every step worked and the cooldown waited before each new trade.

@@ -7,9 +7,9 @@
 //|  session / spread / daily-trade / daily-loss / news filters,      |
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
-#property copyright "Copyright 2026 Thapanapat Pumulna (Kla1524) - MIT License"
+#property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.38"
+#property version   "1.39"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -18,114 +18,117 @@
 enum ENUM_STRATEGY
 {
    STRAT_PULLBACK = 0,  // EMA pullback (v1.x)
-   STRAT_BREAKOUT = 1,  // Donchian breakout ตามเทรนด์
-   STRAT_RSI2     = 2,  // RSI(2) ย่อตัวในเทรนด์
-   STRAT_ORB      = 3   // Opening Range Breakout (กรอบราคาช่วงเช้า)
+   STRAT_BREAKOUT = 1,  // Donchian breakout with the trend
+   STRAT_RSI2     = 2,  // RSI(2) pullback in the trend
+   STRAT_ORB      = 3   // Opening Range Breakout (Asian session range)
 };
 
 enum ENUM_LANG
 {
-   LANG_TH = 0,  // ไทย
+   LANG_TH = 0,  // Thai / ไทย
    LANG_EN = 1   // English
 };
 
 enum ENUM_LOT_MODE
 {
-   LOT_FIXED = 0,  // Lot คงที่
-   LOT_RISK  = 1   // คำนวณจาก % ความเสี่ยง (Balance × Risk% ÷ SL)
+   LOT_FIXED = 0,  // Fixed lot
+   LOT_RISK  = 1   // Risk % of equity (Equity x Risk% / SL)
 };
 
 enum ENUM_TRADE_STYLE
 {
-   STYLE_ONE   = 1,  // โหมด 1: ไม้ใหญ่ วันละ 1 ไม้
-   STYLE_MULTI = 2   // โหมด 2: ค่อยๆ ออกหลายไม้ (ไม้เล็ก ไม่จำกัดต่อวัน)
+   STYLE_ONE   = 1,  // Mode 1: one bigger trade a day
+   STYLE_MULTI = 2   // Mode 2: several smaller trades (no daily limit)
 };
 
 //--- inputs
-input group "=== ทั่วไป ==="
-input ENUM_TRADE_STYLE InpTradeStyle     = STYLE_ONE; // โหมดเทรด (เปลี่ยนได้จากปุ่มบนแผง)
-input double          InpMultiRiskPct    = 0.5;       // % ความเสี่ยงต่อไม้ในโหมด 2
-input ENUM_LOT_MODE   InpLotMode         = LOT_RISK;  // วิธีกำหนด Lot (คำนวณจาก % = ปรับตามทุนอัตโนมัติ)
-input double          InpLots            = 0.01;      // Lot คงที่ (ใช้เมื่อเลือก Lot คงที่)
-input double          InpRiskPct         = 1.0;       // % ความเสี่ยงต่อไม้ (ใช้เมื่อเลือกคำนวณจาก %)
+input group "=== General ==="
+input ENUM_TRADE_STYLE InpTradeStyle     = STYLE_ONE; // Trade mode (can be switched with the panel buttons)
+input double          InpMultiRiskPct    = 0.5;       // Risk % per trade in mode 2
+input ENUM_LOT_MODE   InpLotMode         = LOT_RISK;  // Lot sizing (risk % follows the account size)
+input double          InpLots            = 0.01;      // Fixed lot (when lot sizing = fixed)
+input double          InpRiskPct         = 1.0;       // Risk % per trade in mode 1 (when lot sizing = risk %)
 input ulong           InpMagic           = 20261013;  // Magic number
-input ENUM_TIMEFRAMES InpTF              = PERIOD_M15;// Timeframe สัญญาณ
-input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // กลยุทธ์
-input bool            InpAllowBuy        = true;      // อนุญาตฝั่ง Buy
-input bool            InpAllowSell       = true;      // อนุญาตฝั่ง Sell
+input ENUM_TIMEFRAMES InpTF              = PERIOD_M15;// Signal timeframe
+input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // Strategy
+input bool            InpAllowBuy        = true;      // Allow buys
+input bool            InpAllowSell       = true;      // Allow sells
 
-input group "=== สัญญาณเข้า ==="
-input ENUM_TIMEFRAMES InpTrendTF = PERIOD_CURRENT; // TF ของ EMA เทรนด์ (CURRENT = ใช้ TF สัญญาณ)
-input int    InpTrendEMA    = 200;   // EMA เทรนด์
-input int    InpFastEMA     = 9;     // [Pullback] EMA เร็ว
-input int    InpSlowEMA     = 21;    // [Pullback] EMA ช้า
-input int    InpBreakoutBars = 20;   // [Breakout] จำนวนแท่ง Donchian
+input group "=== Entry signal ==="
+input ENUM_TIMEFRAMES InpTrendTF = PERIOD_CURRENT; // Trend EMA timeframe (CURRENT = signal timeframe)
+input int    InpTrendEMA    = 200;   // Trend EMA period
+input int    InpFastEMA     = 9;     // [Pullback] fast EMA
+input int    InpSlowEMA     = 21;    // [Pullback] slow EMA
+input int    InpBreakoutBars = 20;   // [Breakout] Donchian bars
 input int    InpRSI2Period  = 2;     // [RSI2] RSI period
-input double InpRSI2Entry   = 10.0;  // [RSI2] Buy เมื่อ RSI < x (Sell เมื่อ > 100-x)
-input double InpRSI2Exit    = 70.0;  // [RSI2] ปิด Buy เมื่อ RSI > x (ปิด Sell เมื่อ < 100-x, 0 = ปิด)
-input bool   InpUseTrend    = false; // ใช้ตัวกรอง EMA เทรนด์ (Pullback ใช้เสมอ)
-input int    InpRangeStartHour = 0;  // [ORB] เริ่มวัดกรอบ (ชั่วโมง เวลาเซิร์ฟเวอร์)
-input int    InpRangeEndHour   = 8;  // [ORB] จบกรอบ / เริ่มรอเบรก (ชั่วโมง)
+input double InpRSI2Entry   = 10.0;  // [RSI2] buy when RSI < x (sell when > 100-x)
+input double InpRSI2Exit    = 70.0;  // [RSI2] close buy when RSI > x (sell when < 100-x, 0 = off)
+input bool   InpUseTrend    = false; // Use the trend EMA filter (always on for Pullback)
+input int    InpRangeStartHour = 0;  // [ORB] range start (hour, server time)
+input int    InpRangeEndHour   = 8;  // [ORB] range end / breakouts from (hour, server time)
 input int    InpRSIPeriod   = 14;    // [Pullback] RSI period
-input double InpRSIBuyMin   = 50.0;  // RSI ขั้นต่ำฝั่ง Buy
-input double InpRSIBuyMax   = 70.0;  // RSI สูงสุดฝั่ง Buy (กันไล่ราคา)
-input double InpRSISellMin  = 30.0;  // RSI ขั้นต่ำฝั่ง Sell (กันไล่ราคา)
-input double InpRSISellMax  = 50.0;  // RSI สูงสุดฝั่ง Sell
+input double InpRSIBuyMin   = 50.0;  // [Pullback] min RSI for buys
+input double InpRSIBuyMax   = 70.0;  // [Pullback] max RSI for buys (no chasing)
+input double InpRSISellMin  = 30.0;  // [Pullback] min RSI for sells (no chasing)
+input double InpRSISellMax  = 50.0;  // [Pullback] max RSI for sells
 
-input group "=== SL / TP (คูณ ATR) ==="
+input group "=== SL / TP (multiples of ATR) ==="
 input int    InpATRPeriod   = 14;    // ATR period
 input double InpSL_ATR      = 4.0;   // SL = ATR x
-input double InpTP_ATR      = 0.0;   // TP = ATR x (0 = ไม่ตั้ง TP)
-input double InpBE_ATR      = 0.0;   // เลื่อน Breakeven เมื่อกำไร >= ATR x (0 = ปิด)
-input double InpTrail_ATR   = 0.0;   // Trailing ห่าง ATR x (0 = ปิด)
-input double InpTrailStart_ATR = -1; // เริ่ม Trailing เมื่อกำไร >= ATR x (-1 = เท่ากับระยะ Trailing)
+input double InpTP_ATR      = 0.0;   // TP = ATR x (0 = no take-profit)
+input double InpBE_ATR      = 0.0;   // Move SL to breakeven at profit >= ATR x (0 = off)
+input double InpTrail_ATR   = 0.0;   // Trailing distance ATR x (0 = off)
+input double InpTrailStart_ATR = -1; // Start trailing at profit >= ATR x (-1 = same as the trailing distance)
 
-input group "=== ตัวกรอง ==="
-input int    InpStartHour       = 0;    // เริ่มเทรด (ชั่วโมง เวลาเซิร์ฟเวอร์)
-input int    InpEndHour         = 18;   // หยุดเปิดไม้ใหม่ (ชั่วโมง เวลาเซิร์ฟเวอร์)
-input double InpMaxSpread       = 1.00; // สเปรดสูงสุด (หน่วยราคา เช่น 0.40 = 40 cents)
-input double InpMinATR          = 0.0;  // ATR ขั้นต่ำ (หน่วยราคา, 0 = ปิด) กันตลาดนิ่ง
-input double InpMinDailyATRPct  = 1.6;  // ATR รายวันขั้นต่ำ เป็น % ของราคา (0 = ปิด) เทรดเฉพาะวันที่ผันผวนพอ
-input double InpMaxRiskPct      = 5.0;  // ข้ามไม้ถ้า SL เสียเกิน % ของบาลานซ์ (0 = ปิด)
-input int    InpMaxTradesPerDay = 1;    // จำนวนไม้สูงสุดต่อวัน (0 = ไม่จำกัด)
-input double InpMaxDailyLossPct = 3.0;  // หยุดเทรดเมื่อขาดทุนวันนี้ >= % ของบาลานซ์ (0 = ปิด)
-input int    InpDailyCloseHour  = 20;   // ปิดออเดอร์ทุกวันเมื่อถึงชั่วโมงนี้ (หลบ swap, -1 = ปิด)
-input bool   InpCloseFriday     = true; // ปิดออเดอร์ก่อนตลาดปิดวันศุกร์
-input int    InpFridayCloseHour = 21;   // ชั่วโมงที่ปิดวันศุกร์ (เวลาเซิร์ฟเวอร์)
+input group "=== Filters & risk ==="
+input int    InpStartHour       = 0;    // Trading starts (hour, server time)
+input int    InpEndHour         = 18;   // No new trades from (hour, server time)
+input double InpMaxSpread       = 1.00; // Max spread (price units, e.g. 0.40 = 40 cents)
+input double InpMinATR          = 0.0;  // Min ATR (price units, 0 = off)
+input double InpMinDailyATRPct  = 1.6;  // Min daily ATR as % of price (0 = off): trade only volatile days
+input bool   InpStrictRisk      = true; // Skip a trade if its real risk (vs equity) exceeds the current mode's % (risk-% sizing)
+input int    InpSlippagePts     = 30;   // Slippage allowance at the SL (points), counted in the real risk
+input double InpCommissionLot   = 0.0;  // Round-turn commission per 1 lot (account currency; XM Standard = 0)
+input double InpMaxRiskPct      = 5.0;  // Hard cap: skip if the SL would lose more than % of equity (0 = off)
+input int    InpMaxTradesPerDay = 1;    // Max trades per day in mode 1 (0 = unlimited)
+input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
+input int    InpDailyCloseHour  = 20;   // Close all trades daily at this hour (avoids swap, -1 = off)
+input bool   InpCloseFriday     = true; // Close trades before the Friday market close
+input int    InpFridayCloseHour = 21;   // Friday close hour (server time)
 
-input group "=== ตัวกรองข่าว (ปฏิทินเศรษฐกิจ MT5) ==="
-input bool   InpNewsFilter       = true;   // เปิดใช้ตัวกรองข่าว
-input string InpNewsCurrencies   = "USD";  // สกุลเงินที่กรอง (คั่นด้วย , เช่น USD,EUR)
-input bool   InpNewsHighOnly     = true;   // true = เฉพาะข่าวแรง, false = ข่าวกลาง+แรง
-input int    InpNewsMinsBefore   = 30;     // งดเปิดไม้ก่อนข่าว (นาที)
-input int    InpNewsMinsAfter    = 30;     // งดเปิดไม้หลังข่าว (นาที)
-input bool   InpNewsClosePos     = false;  // ปิดออเดอร์ที่เปิดอยู่เมื่อเข้าช่วงข่าว
+input group "=== News filter (MT5 economic calendar) ==="
+input bool   InpNewsFilter       = true;   // Enable the news filter
+input string InpNewsCurrencies   = "USD";  // Currencies to watch (comma separated, e.g. USD,EUR)
+input bool   InpNewsHighOnly     = true;   // true = high impact only, false = medium + high
+input int    InpNewsMinsBefore   = 30;     // No new trades before the event (minutes)
+input int    InpNewsMinsAfter    = 30;     // No new trades after the event (minutes)
+input bool   InpNewsClosePos     = false;  // Close open trades when a news window starts
 
-input group "=== แจ้งเตือน ==="
-input bool   InpNotifyPush   = true;   // ส่ง Push เข้าแอป MT5 บนมือถือ
-input bool   InpNotifyPopup  = false;  // แสดงหน้าต่าง Alert บนคอม
-input bool   InpNotifyTrades = true;   // แจ้งเตือน เปิด/ปิดไม้ และเลื่อน Breakeven
-input bool   InpNotifyNews   = true;   // แจ้งเตือน เข้า/ออกช่วงข่าว
+input group "=== Notifications ==="
+input bool   InpNotifyPush   = true;   // Push notifications to the MT5 mobile app
+input bool   InpNotifyPopup  = false;  // Alert window on the PC
+input bool   InpNotifyTrades = true;   // Notify trade open / close / breakeven
+input bool   InpNotifyNews   = true;   // Notify news windows
 
-input group "=== แผงควบคุมบนกราฟ ==="
-input bool   InpShowPanel = true;  // แสดงแผงควบคุม
-input int    InpPanelX    = 10;    // ตำแหน่งแผง X (พิกเซล)
-input int    InpPanelY    = 30;    // ตำแหน่งแผง Y (พิกเซล)
+input group "=== On-chart panel ==="
+input bool   InpShowPanel = true;  // Show the panel
+input int    InpPanelX    = 10;    // Panel X position (pixels)
+input int    InpPanelY    = 30;    // Panel Y position (pixels)
 
-input group "=== ตรวจบัญชี / Account check ==="
-input ENUM_LANG InpLanguage       = LANG_TH; // ภาษาหน้าต่างแนะนำ / Popup language
-input bool   InpAccountCheck    = true;  // วิเคราะห์บัญชีตอนเริ่ม / Account check on start
-input bool   InpAccountPopup    = false; // ตอนเริ่ม: true = หน้าต่างเด้ง (ต้องกดตอบ), false = แสดงในแท็บ Experts / Start-up check as popup (else Experts tab)
+input group "=== Language & account check ==="
+input ENUM_LANG InpLanguage       = LANG_EN; // Language of panel, alerts and windows / ภาษา
+input bool   InpAccountCheck    = true;  // Account check on start
+input bool   InpAccountPopup    = false; // Start-up check as a popup (needs an answer); false = Experts tab
 
-input group "=== ทดสอบระบบ (บัญชี Demo เท่านั้น) ==="
-input bool   InpTestMode        = false; // ทดสอบระบบ: เปิด-ปิดไม้จริงบน Demo ทันทีโดยไม่รอสัญญาณ
-input int    InpTestTrades      = 3;     // จำนวนไม้ทดสอบ (สลับ BUY / SELL)
-input int    InpTestHoldMin     = 2;     // ถือไม้ทดสอบกี่นาทีแล้วปิด
+input group "=== System test (demo accounts only) ==="
+input bool   InpTestMode        = false; // System test: open/close real demo trades now, without a signal
+input int    InpTestTrades      = 3;     // Number of test trades (alternating BUY / SELL)
+input int    InpTestHoldMin     = 2;     // Minutes to hold each test trade
 
-input group "=== วิเคราะห์ไม้แพ้ ==="
-input int    InpLossCooldownMin = 20;   // พักหลังไม้แพ้ (นาที, 0 = ปิด)
-input bool   InpJournal         = true; // บันทึกทุกไม้ + สาเหตุที่แพ้ ลง CSV (Common\Files)
-input int    InpMinConfidence   = 1;    // คะแนนความมั่นใจขั้นต่ำ 0-4 (เทรนด์ D1, เทรนด์ H1, ADX 20-30, RSI แรง; 0 = ปิด)
+input group "=== Loss diagnosis ==="
+input int    InpLossCooldownMin = 20;   // Pause after a losing trade (minutes, 0 = off)
+input bool   InpJournal         = true; // Log every trade + loss reasons to CSV (Common\Files)
+input int    InpMinConfidence   = 1;    // Min confidence score 0-4 (D1 trend, H1 trend, ADX 20-30, strong RSI; 0 = off)
 
 //--- globals
 #define PFX "GS15_"
@@ -169,6 +172,7 @@ string   gvPaused        = "";
 ENUM_TRADE_STYLE styleRt = STYLE_ONE;   // mode in effect (input, or chosen with the panel buttons)
 string   gvStyle         = "";
 string   gvStyleIn       = "";          // the input value when the mode was chosen
+string   gvCooldown      = "";          // end of the loss cooldown, kept across restarts
 int      testDone        = 0;           // system-test trades opened so far
 bool     testFinished    = false;
 int      lossNotifiedDay = -1;
@@ -179,12 +183,12 @@ int OnInit()
 {
    if(InpFastEMA >= InpSlowEMA)
    {
-      Print("InpFastEMA ต้องน้อยกว่า InpSlowEMA");
+      Print("InpFastEMA must be smaller than InpSlowEMA");
       return INIT_PARAMETERS_INCORRECT;
    }
    if(InpLotMode == LOT_RISK && (InpRiskPct <= 0 || (InpMaxRiskPct > 0 && InpRiskPct > InpMaxRiskPct)))
    {
-      Print("InpRiskPct ต้องมากกว่า 0 และไม่เกิน InpMaxRiskPct (", InpMaxRiskPct, "%) - ไม่อย่างนั้นทุกไม้จะถูกข้าม");
+      Print("InpRiskPct must be > 0 and <= InpMaxRiskPct (", InpMaxRiskPct, "%) - otherwise every trade is skipped");
       return INIT_PARAMETERS_INCORRECT;
    }
 
@@ -217,7 +221,7 @@ int OnInit()
       hATRD1 == INVALID_HANDLE || hEmaH1 == INVALID_HANDLE || hEmaD1 == INVALID_HANDLE ||
       hAdxH1 == INVALID_HANDLE)
    {
-      Print("สร้าง indicator ไม่สำเร็จ: ", GetLastError());
+      Print("Indicator creation failed: ", GetLastError());
       return INIT_FAILED;
    }
 
@@ -228,6 +232,33 @@ int OnInit()
    // Pause state survives timeframe changes and terminal restarts.
    gvPaused = PFX + "paused_" + _Symbol + "_" + (string)InpMagic;
    paused   = GlobalVariableCheck(gvPaused) && GlobalVariableGet(gvPaused) > 0;
+
+   // Loss cooldown survives restarts too.
+   gvCooldown = PFX + "cooldown_" + _Symbol + "_" + (string)InpMagic;
+   if(!MQLInfoInteger(MQL_TESTER) && GlobalVariableCheck(gvCooldown))
+      cooldownUntil = (datetime)(long)GlobalVariableGet(gvCooldown);
+
+   // Positions left from a time the EA was not running (PC off, disconnect): say so; the
+   // daily-close rule closes them on the next tick.
+   if(!MQLInfoInteger(MQL_TESTER) && UninitializeReason() != REASON_CHARTCHANGE &&
+      UninitializeReason() != REASON_PARAMETERS)
+   {
+      datetime today = TimeCurrent() - (TimeCurrent() % 86400);
+      MqlDateTime nowDt;
+      TimeToStruct(TimeCurrent(), nowDt);
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         if(PositionGetTicket(i) == 0 || !IsMine())
+            continue;
+         datetime opened = (datetime)PositionGetInteger(POSITION_TIME);
+         if(opened < today || (InpDailyCloseHour >= 0 && nowDt.hour >= InpDailyCloseHour))
+            Notify(StringFormat(L("พบไม้ค้าง #%I64u (เปิด %s) จากช่วงที่ EA ไม่ได้ทำงาน - กำลังปิดตามกฎปิดประจำวัน", "Found position #%I64u (opened %s) left from while the EA was not running - closing it by the daily-close rule"),
+                                PositionGetInteger(POSITION_TICKET), TimeToString(opened, TIME_DATE | TIME_MINUTES)));
+         else
+            Notify(StringFormat(L("EA กลับมาทำงาน: ดูแลไม้ #%I64u ที่เปิดอยู่ต่อ (SL ยังอยู่ที่เซิร์ฟเวอร์)", "EA running again: managing open position #%I64u (its SL stayed on the server)"),
+                                PositionGetInteger(POSITION_TICKET)));
+      }
+   }
 
    // Trade mode chosen on the panel survives restarts, until the input itself is edited.
    styleRt   = InpTradeStyle;
@@ -243,7 +274,7 @@ int OnInit()
    }
    if(InpMultiRiskPct <= 0 || (InpMaxRiskPct > 0 && InpMultiRiskPct > InpMaxRiskPct))
    {
-      Print("InpMultiRiskPct ต้องมากกว่า 0 และไม่เกิน InpMaxRiskPct (", InpMaxRiskPct, "%)");
+      Print("InpMultiRiskPct must be > 0 and <= InpMaxRiskPct (", InpMaxRiskPct, "%)");
       return INIT_PARAMETERS_INCORRECT;
    }
 
@@ -322,7 +353,7 @@ void TestStep()
    if(AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
    {
       testFinished = true;
-      Notify("ไม่ทดสอบ: โหมดทดสอบระบบใช้ได้เฉพาะบัญชี Demo (บัญชีนี้เป็นบัญชีจริง)");
+      Notify(L("ไม่ทดสอบ: โหมดทดสอบระบบใช้ได้เฉพาะบัญชี Demo (บัญชีนี้เป็นบัญชีจริง)", "System test refused: demo accounts only (this is a real account)"));
       return;
    }
 
@@ -333,8 +364,8 @@ void TestStep()
          continue;
       if(TimeCurrent() - (datetime)PositionGetInteger(POSITION_TIME) >= InpTestHoldMin * 60)
       {
-         Print(StringFormat("ทดสอบ: ครบ %d นาที - ปิดไม้ #%I64u", InpTestHoldMin, ticket));
-         trade.PositionClose(ticket);
+         Print(StringFormat(L("ทดสอบ: ครบ %d นาที - ปิดไม้ #%I64u", "Test: %d minutes up - closing #%I64u"), InpTestHoldMin, ticket));
+         ClosePosition(ticket, L("ทดสอบ", "test"));
       }
       return;
    }
@@ -342,7 +373,7 @@ void TestStep()
    if(testDone >= InpTestTrades)
    {
       testFinished = true;
-      Notify(StringFormat("ทดสอบระบบเสร็จ %d ไม้ - ปิด InpTestMode แล้ว EA จะกลับไปเทรดตามสัญญาณ", testDone));
+      Notify(StringFormat(L("ทดสอบระบบเสร็จ %d ไม้ - ปิด InpTestMode แล้ว EA จะกลับไปเทรดตามสัญญาณ", "System test finished (%d trades) - set InpTestMode = false to trade signals again"), testDone));
       return;
    }
    if(paused || TimeCurrent() < cooldownUntil)
@@ -353,7 +384,7 @@ void TestStep()
       return;
    testDone++;
    ENUM_ORDER_TYPE type = (testDone % 2 == 1) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   Notify(StringFormat("ทดสอบระบบ ไม้ที่ %d/%d: เปิด %s (ถือ %d นาที)", testDone, InpTestTrades,
+   Notify(StringFormat(L("ทดสอบระบบ ไม้ที่ %d/%d: เปิด %s (ถือ %d นาที)", "System test %d/%d: opening %s (hold %d min)"), testDone, InpTestTrades,
                        type == ORDER_TYPE_BUY ? "BUY" : "SELL", InpTestHoldMin));
    OpenTrade(type, atr[0]);
 }
@@ -368,7 +399,7 @@ void OnTick()
       if(CountPositions() > 0)
       {
          CloseAll();
-         Notify("ปิดออเดอร์ทั้งหมดก่อนตลาดปิดวันศุกร์");
+         Notify(L("ปิดออเดอร์ทั้งหมดก่อนตลาดปิดวันศุกร์", "Closed all trades before the Friday market close"));
       }
       return;
    }
@@ -385,7 +416,7 @@ void OnTick()
          ulong ticket = PositionGetTicket(i);
          if(ticket > 0 && IsMine() &&
             (now.hour >= InpDailyCloseHour || (datetime)PositionGetInteger(POSITION_TIME) < today))
-            trade.PositionClose(ticket);
+            ClosePosition(ticket, L("ปิดประจำวัน", "daily close"));
       }
    }
 
@@ -393,7 +424,7 @@ void OnTick()
    if(newsNow && InpNewsClosePos && CountPositions() > 0)
    {
       CloseAll();
-      Notify("ปิดออเดอร์เพราะเข้าช่วงข่าว: " + newsBlockInfo);
+      Notify(L("ปิดออเดอร์เพราะเข้าช่วงข่าว: ", "Closed trades for a news window: ") + newsBlockInfo);
    }
 
    TrackOpenTrade();
@@ -432,7 +463,7 @@ void OnTick()
       int score = ConfidenceScore(signal);
       if(score < InpMinConfidence)
       {
-         Print(StringFormat("ข้ามสัญญาณ %s: ความมั่นใจต่ำ %d/4 (ต้อง >= %d)", signal > 0 ? "BUY" : "SELL", score, InpMinConfidence));
+         Print(StringFormat(L("ข้ามสัญญาณ %s: ความมั่นใจต่ำ %d/4 (ต้อง >= %d)", "Skipped %s signal: low confidence %d/4 (needs >= %d)"), signal > 0 ? "BUY" : "SELL", score, InpMinConfidence));
          return;
       }
    }
@@ -550,7 +581,7 @@ void ExitOnSignal()
          continue;
       bool isBuy = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY;
       if((isBuy && r[0] > InpRSI2Exit) || (!isBuy && r[0] < 100.0 - InpRSI2Exit))
-         trade.PositionClose(ticket);
+         ClosePosition(ticket, "RSI2 exit");
    }
 }
 
@@ -580,7 +611,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                 + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                 + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
    long   why   = HistoryDealGetInteger(trans.deal, DEAL_REASON);
-   string how   = why == DEAL_REASON_TP ? "ถึง TP" : why == DEAL_REASON_SL ? "โดน SL" : "ปิดไม้";
+   string how   = why == DEAL_REASON_TP ? L("ถึง TP", "TP hit") : why == DEAL_REASON_SL ? L("โดน SL", "SL hit") : L("ปิดไม้", "Closed");
    string exitCode = why == DEAL_REASON_TP ? "TP" : why == DEAL_REASON_SL ? "SL" : "CLOSE";
 
    // Codes for the CSV, Thai text for the phone.
@@ -589,7 +620,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    {
       LossReasons(exitCode, codes, thai);
       if(InpLossCooldownMin > 0)
+      {
          cooldownUntil = TimeCurrent() + InpLossCooldownMin * 60;
+         if(!MQLInfoInteger(MQL_TESTER))
+            GlobalVariableSet(gvCooldown, (double)cooldownUntil);   // survives an MT5 restart
+      }
    }
    if(InpJournal && tiValid)
       WriteJournal(price, pl, exitCode, codes);
@@ -598,7 +633,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(InpNotifyTrades)
       Notify(StringFormat("%s %s @ %s | P/L %.2f %s%s", how, side, DoubleToString(price, _Digits),
                           pl, AccountInfoString(ACCOUNT_CURRENCY),
-                          pl < 0 ? " | แพ้เพราะ: " + thai : ""));
+                          pl < 0 ? L(" | แพ้เพราะ: ", " | Lost because: ") + thai : ""));
 }
 
 //+------------------------------------------------------------------+
@@ -684,24 +719,24 @@ void LossReasons(string exitCode, string &codes, string &thai)
    if(!tiValid)
    {
       codes = "NO_SNAPSHOT";
-      thai  = "ไม่มีข้อมูลตอนเข้า (EA ถูกรีสตาร์ทระหว่างถือไม้)";
+      thai  = L("ไม่มีข้อมูลตอนเข้า (EA ถูกรีสตาร์ทระหว่างถือไม้)", "no entry data (the EA restarted while the trade was open)");
       return;
    }
-   if(ti.backInside)                        AddReason(codes, thai, "FALSE_BREAK", "เบรกหลอก ราคากลับเข้ากรอบ");
-   if(ti.trendH1 < 0)                       AddReason(codes, thai, "AGAINST_H1",  "สวนเทรนด์ H1 (EMA200)");
-   if(ti.trendD1 < 0)                       AddReason(codes, thai, "AGAINST_D1",  "สวนเทรนด์ D1 (EMA50)");
-   if(ti.adx > 0 && ti.adx < 20)            AddReason(codes, thai, "LOW_ADX",     "ไม่มีเทรนด์ (ADX H1 < 20)");
-   if(ti.bodyRatio < 0.5)                   AddReason(codes, thai, "WEAK_CANDLE", "แท่งเบรกอ่อน ไส้ยาว");
-   if(ti.breakAtr > 1.0)                    AddReason(codes, thai, "CHASED",      "เข้าไล่ราคา ปิดไกลจากกรอบ");
+   if(ti.backInside)                        AddReason(codes, thai, "FALSE_BREAK", L("เบรกหลอก ราคากลับเข้ากรอบ", "false breakout, price came back into the range"));
+   if(ti.trendH1 < 0)                       AddReason(codes, thai, "AGAINST_H1",  L("สวนเทรนด์ H1 (EMA200)", "against the H1 trend (EMA200)"));
+   if(ti.trendD1 < 0)                       AddReason(codes, thai, "AGAINST_D1",  L("สวนเทรนด์ D1 (EMA50)", "against the D1 trend (EMA50)"));
+   if(ti.adx > 0 && ti.adx < 20)            AddReason(codes, thai, "LOW_ADX",     L("ไม่มีเทรนด์ (ADX H1 < 20)", "no trend (ADX H1 < 20)"));
+   if(ti.bodyRatio < 0.5)                   AddReason(codes, thai, "WEAK_CANDLE", L("แท่งเบรกอ่อน ไส้ยาว", "weak breakout candle, long wick"));
+   if(ti.breakAtr > 1.0)                    AddReason(codes, thai, "CHASED",      L("เข้าไล่ราคา ปิดไกลจากกรอบ", "chased: closed far beyond the range"));
    if((ti.dir > 0 && ti.rsi > 70) || (ti.dir < 0 && ti.rsi > 0 && ti.rsi < 30))
-                                            AddReason(codes, thai, "RSI_EXTREME", "RSI สุดทางตอนเข้า");
-   if(ti.atr > 0 && ti.mfe >= ti.atr)       AddReason(codes, thai, "GAVE_BACK",   "เคยกำไร >= 1 ATR แล้วกลับตัว");
-   if(exitCode == "CLOSE")                  AddReason(codes, thai, "NO_FOLLOW",   "ราคาไม่ไปต่อจนหมดเวลา");
-   if(ti.hour >= 15)                        AddReason(codes, thai, "LATE_ENTRY",  "เข้าช่วงบ่าย/ข่าว US");
+                                            AddReason(codes, thai, "RSI_EXTREME", L("RSI สุดทางตอนเข้า", "RSI extreme at entry"));
+   if(ti.atr > 0 && ti.mfe >= ti.atr)       AddReason(codes, thai, "GAVE_BACK",   L("เคยกำไร >= 1 ATR แล้วกลับตัว", "was >= 1 ATR in profit, then reversed"));
+   if(exitCode == "CLOSE")                  AddReason(codes, thai, "NO_FOLLOW",   L("ราคาไม่ไปต่อจนหมดเวลา", "no follow-through before the close"));
+   if(ti.hour >= 15)                        AddReason(codes, thai, "LATE_ENTRY",  L("เข้าช่วงบ่าย/ข่าว US", "late entry (US session / news)"));
    if(codes == "")
    {
       codes = "NORMAL";
-      thai  = "ไม่พบจุดผิดปกติ (แพ้ตามสถิติ)";
+      thai  = L("ไม่พบจุดผิดปกติ (แพ้ตามสถิติ)", "nothing unusual (a normal statistical loss)");
    }
 }
 
@@ -716,7 +751,7 @@ void WriteJournal(double exitPrice, double pl, string exitCode, string codes)
    int f = FileOpen(JournalName(), FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ, ',');
    if(f == INVALID_HANDLE)
    {
-      Print("เขียน journal ไม่ได้: ", GetLastError());
+      Print("Cannot write the journal: ", GetLastError());
       return;
    }
    if(FileSize(f) == 0)
@@ -749,20 +784,20 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
       paused = !paused;
       GlobalVariableSet(gvPaused, paused ? 1 : 0);
-      Print(paused ? "หยุดเปิดไม้ใหม่ชั่วคราว (ออเดอร์ที่ถืออยู่ยังดูแล SL/TP ต่อ)" : "กลับมาเทรดตามปกติ");
+      Print(paused ? L("หยุดเปิดไม้ใหม่ชั่วคราว (ออเดอร์ที่ถืออยู่ยังดูแล SL/TP ต่อ)", "Paused: no new trades (open trades keep their SL/TP)") : L("กลับมาเทรดตามปกติ", "Trading resumed"));
    }
    else if(sparam == PFX + "btnClose")
    {
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
       int n = CountPositions();
       if(n == 0)
-         Print("ไม่มีออเดอร์ของ EA นี้ให้ปิด");
+         Print(L("ไม่มีออเดอร์ของ EA นี้ให้ปิด", "No trades of this EA to close"));
       else if(MQLInfoInteger(MQL_TESTER) ||
-              MessageBox(StringFormat("ปิดออเดอร์ของ EA นี้ทั้งหมด %d ไม้?", n),
+              MessageBox(StringFormat(L("ปิดออเดอร์ของ EA นี้ทั้งหมด %d ไม้?", "Close all %d trades of this EA?"), n),
                          "GoldScalperM15", MB_YESNO | MB_ICONQUESTION) == IDYES)
       {
          CloseAll();
-         Notify(StringFormat("ปิดออเดอร์ทั้งหมด %d ไม้ (กดปุ่มบนแผง)", n));
+         Notify(StringFormat(L("ปิดออเดอร์ทั้งหมด %d ไม้ (กดปุ่มบนแผง)", "Closed all %d trades (panel button)"), n));
       }
    }
    else if(sparam == PFX + "btnAcct")
@@ -798,13 +833,50 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    double tp    = InpTP_ATR > 0 ? NormPrice(isBuy ? ask + tpDist : bid - tpDist) : 0;   // 0 = no TP
    string side  = isBuy ? "BUY" : "SELL";
 
-   // Skip when the stop is so far away that one loss would exceed InpMaxRiskPct of balance.
+   // Real risk of this order: SL from the actual entry price + slippage allowance + commission,
+   // measured against equity.
    double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
-   double riskMoney = LossPerLot(slDist) * lots;          // money lost if SL is hit (0 = unknown)
-   if(InpMaxRiskPct > 0 && riskMoney > balance * InpMaxRiskPct / 100.0)
+   double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney = RiskPerLot(slDist) * lots;          // money lost if SL is hit (0 = unknown)
+   string ccy       = AccountInfoString(ACCOUNT_CURRENCY);
+   if(InpMaxRiskPct > 0 && riskMoney > equity * InpMaxRiskPct / 100.0)
    {
-      NotifyFailure(StringFormat("ข้าม %s: SL เสี่ยง %.2f (%.1f%% ของบาลานซ์) เกินกำหนด %.1f%%", side,
-                                 riskMoney, riskMoney / balance * 100.0, InpMaxRiskPct));
+      NotifyFailure(StringFormat(L("ข้าม %s: SL เสี่ยง %.2f (%.1f%% ของ Equity) เกินกำหนด %.1f%%", "Skipped %s: SL risk %.2f (%.1f%% of equity) is above the %.1f%% cap"), side,
+                                 riskMoney, riskMoney / equity * 100.0, InpMaxRiskPct));
+      return;
+   }
+   // Strict risk: never exceed the current mode's risk % - if even the minimum lot is too
+   // big, skip the trade instead of forcing it, and say why.
+   if(lotModeRt == LOT_RISK && InpStrictRisk && equity > 0 &&
+      riskMoney > equity * RiskPctEff() / 100.0 * 1.0001)
+   {
+      Notify(StringFormat(L("ข้าม %s: Lot ขั้นต่ำ %.2f ถ้าโดน SL จะเสีย %.2f %s (%.2f%% ของ Equity %.2f) เกินเป้าโหมด %d ที่ %.1f%% "
+                            "[SL %.2f + slippage %d จุด + คอมฯ] - ต้องมี Equity ~%.0f %s หรือใช้บัญชี Micro/Cent",
+                            "Skipped %s: min lot %.2f would lose %.2f %s at the SL (%.2f%% of equity %.2f), above the mode %d target of %.1f%% "
+                            "[SL %.2f + slippage %d pts + commission] - needs equity of ~%.0f %s or a Micro/Cent account"),
+                          side, lots, riskMoney, ccy, riskMoney / equity * 100.0, equity, (int)styleRt, RiskPctEff(),
+                          slDist, InpSlippagePts, riskMoney / (RiskPctEff() / 100.0), ccy));
+      return;
+   }
+   // Daily loss budget: this trade's stop must fit in what is left of today's limit.
+   if(InpMaxDailyLossPct > 0)
+   {
+      int    tToday;
+      double pToday;
+      GetTodayStats(tToday, pToday);
+      double budget = (balance - pToday) * InpMaxDailyLossPct / 100.0 - MathMax(0.0, -pToday);
+      if(riskMoney > budget)
+      {
+         Notify(StringFormat(L("ข้าม %s: งบขาดทุนวันนี้เหลือ %.2f %s แต่ไม้นี้ถ้าโดน SL จะเสีย %.2f (เพดาน %.1f%%/วัน)", "Skipped %s: %.2f %s left in today's loss budget, but this trade would lose %.2f at the SL (limit %.1f%%/day)"),
+                             side, MathMax(0.0, budget), AccountInfoString(ACCOUNT_CURRENCY), riskMoney, InpMaxDailyLossPct));
+         return;
+      }
+   }
+   // One order at a time across charts: a second chart with the same magic, or a repeated
+   // signal after a reconnect, must not open a duplicate.
+   if(!AcquireOrderLock() || CountPositions() > 0)
+   {
+      Print("Duplicate order skipped: an order was just sent or a position of this EA is open");
       return;
    }
    // Skip (and warn at most once a day) when free margin can't cover the order.
@@ -812,7 +884,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    if(OrderCalcMargin(type, _Symbol, lots, price, margin) &&
       margin > AccountInfoDouble(ACCOUNT_MARGIN_FREE))
    {
-      NotifyFailure(StringFormat("มาร์จิ้นไม่พอเปิด %s %.2f lot (ต้องใช้ %.2f, มี %.2f)", side, lots,
+      NotifyFailure(StringFormat(L("มาร์จิ้นไม่พอเปิด %s %.2f lot (ต้องใช้ %.2f, มี %.2f)", "Not enough margin for %s %.2f lot (needs %.2f, free %.2f)"), side, lots,
                                  margin, AccountInfoDouble(ACCOUNT_MARGIN_FREE)));
       return;
    }
@@ -823,15 +895,64 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    {
       CaptureEntry(isBuy ? 1 : -1, trade.ResultPrice() > 0 ? trade.ResultPrice() : price, sl, atr, lots);
       if(InpNotifyTrades)
-         Notify(StringFormat("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.1f%%)", side, lots,
+         Notify(StringFormat(L("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.1f%%)", "Opened %s %.2f lot @ %s | SL %s | TP %s | risk %.2f %s (%.1f%%)"), side, lots,
                              DoubleToString(trade.ResultPrice() > 0 ? trade.ResultPrice() : price, _Digits),
                              DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
                              riskMoney, AccountInfoString(ACCOUNT_CURRENCY),
                              balance > 0 ? riskMoney / balance * 100.0 : 0));
    }
    else
-      NotifyFailure(StringFormat("เปิด %s ไม่สำเร็จ: %d %s", side, trade.ResultRetcode(),
+      NotifyFailure(StringFormat(L("เปิด %s ไม่สำเร็จ: %d %s", "Open %s failed: %d %s"), side, trade.ResultRetcode(),
                                  trade.ResultRetcodeDescription()));
+}
+
+// Terminal-wide lock: only one chart of this symbol + magic may send an order within 10 s.
+bool AcquireOrderLock()
+{
+   if(MQLInfoInteger(MQL_TESTER))
+      return true;
+   string name = PFX + "lock_" + _Symbol + "_" + (string)InpMagic;
+   if(!GlobalVariableCheck(name))
+      GlobalVariableTemp(name);
+   double prev = GlobalVariableGet(name);
+   double now  = (double)TimeLocal();
+   if(now - prev < 10)
+      return false;
+   return GlobalVariableSetOnCondition(name, now, prev);
+}
+
+// Close one position and confirm it is gone; retries a few times, then alerts.
+// Callers run every tick, so a failed close is tried again on the next tick.
+bool ClosePosition(ulong ticket, string why)
+{
+   for(int attempt = 0; attempt < 3; attempt++)
+   {
+      if(!PositionSelectByTicket(ticket))
+         return true;   // already closed
+      if(trade.PositionClose(ticket))
+      {
+         uint rc = trade.ResultRetcode();
+         if(rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL || rc == TRADE_RETCODE_PLACED)
+         {
+            if(!PositionSelectByTicket(ticket))
+               return true;
+         }
+      }
+      Print(StringFormat("Close #%I64u (%s) attempt %d failed: %d %s", ticket, why, attempt + 1,
+                         trade.ResultRetcode(), trade.ResultRetcodeDescription()));
+      if(!MQLInfoInteger(MQL_TESTER))
+         Sleep(300);
+   }
+   if(!PositionSelectByTicket(ticket))
+      return true;
+   static datetime lastAlert = 0;
+   if(TimeCurrent() - lastAlert >= 600)
+   {
+      lastAlert = TimeCurrent();
+      Notify(StringFormat(L("⚠ ปิดไม้ #%I64u (%s) ไม่สำเร็จ: %d %s - EA จะลองใหม่ทุก tick เช็กไม้ใน MT5 ด้วย", "⚠ Could not close #%I64u (%s): %d %s - the EA retries every tick; please check MT5"),
+                          ticket, why, trade.ResultRetcode(), trade.ResultRetcodeDescription()));
+   }
+   return false;
 }
 
 // Failures can repeat every bar; log each one but alert the phone at most once a day.
@@ -846,7 +967,7 @@ void NotifyFailure(string msg)
       return;
    }
    lastDay = dt.day_of_year;
-   Notify(msg + " (แจ้งครั้งเดียวต่อวัน)");
+   Notify(msg + L(" (แจ้งครั้งเดียวต่อวัน)", " (alerted once a day)"));
 }
 
 //+------------------------------------------------------------------+
@@ -893,7 +1014,7 @@ void ManagePositions()
             continue;
          target = NormPrice(MathMin(target, bid - minDist));
          if(target > sl + _Point && trade.PositionModify(ticket, target, tp) && beNow && InpNotifyTrades)
-            Notify(StringFormat("เลื่อน SL ไม้ BUY มาที่ทุนแล้ว (SL %s)", DoubleToString(target, _Digits)));
+            Notify(StringFormat(L("เลื่อน SL ไม้ BUY มาที่ทุนแล้ว (SL %s)", "BUY stop moved to breakeven (SL %s)"), DoubleToString(target, _Digits)));
       }
       else
       {
@@ -909,7 +1030,7 @@ void ManagePositions()
             continue;
          target = NormPrice(MathMax(target, ask + minDist));
          if((sl == 0 || target < sl - _Point) && trade.PositionModify(ticket, target, tp) && beNow && InpNotifyTrades)
-            Notify(StringFormat("เลื่อน SL ไม้ SELL มาที่ทุนแล้ว (SL %s)", DoubleToString(target, _Digits)));
+            Notify(StringFormat(L("เลื่อน SL ไม้ SELL มาที่ทุนแล้ว (SL %s)", "SELL stop moved to breakeven (SL %s)"), DoubleToString(target, _Digits)));
       }
    }
 }
@@ -920,15 +1041,15 @@ void ManagePositions()
 // Why no new trade may be opened right now ("" = allowed).
 string BlockReason(int tradesToday, double profitToday)
 {
-   if(TestActive())                       return StringFormat("ทดสอบระบบ %d/%d ไม้", testDone, InpTestTrades);
-   if(paused)                             return "หยุดชั่วคราว (กดปุ่ม)";
-   if(TimeCurrent() < cooldownUntil)      return "พักหลังแพ้ ถึง " + TimeToString(cooldownUntil, TIME_MINUTES);
-   if(newsBlocked)                        return "งดเทรด ช่วงข่าว";
-   if(DailyLossHit(profitToday))          return "ถึงเพดานขาดทุนวันนี้";
-   if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return "ครบจำนวนไม้วันนี้";
-   if(!InSession())                       return "นอกเวลาเทรด";
-   if(!SpreadOK())                        return "สเปรดกว้างเกิน";
-   if(!VolatilityOK())                    return "ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง";
+   if(TestActive())                       return StringFormat(L("ทดสอบระบบ %d/%d ไม้", "System test %d/%d trades"), testDone, InpTestTrades);
+   if(paused)                             return L("หยุดชั่วคราว (กดปุ่ม)", "Paused (button)");
+   if(TimeCurrent() < cooldownUntil)      return L("พักหลังแพ้ ถึง ", "Pause after loss until ") + TimeToString(cooldownUntil, TIME_MINUTES);
+   if(newsBlocked)                        return L("งดเทรด ช่วงข่าว", "News window - no trades");
+   if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
+   if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");
+   if(!InSession())                       return L("นอกเวลาเทรด", "Outside trading hours");
+   if(!SpreadOK())                        return L("สเปรดกว้างเกิน", "Spread too wide");
+   if(!VolatilityOK())                    return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
    return "";
 }
 
@@ -946,7 +1067,7 @@ void RefreshStatus()
    if(DailyLossHit(profitToday) && lossNotifiedDay != dt.day_of_year)
    {
       lossNotifiedDay = dt.day_of_year;
-      Notify(StringFormat("ขาดทุนวันนี้ %.2f %s ถึงเพดาน %.1f%% แล้ว - หยุดเปิดไม้ใหม่ถึงพรุ่งนี้",
+      Notify(StringFormat(L("ขาดทุนวันนี้ %.2f %s ถึงเพดาน %.1f%% แล้ว - หยุดเปิดไม้ใหม่ถึงพรุ่งนี้", "Today's loss %.2f %s reached the %.1f%% limit - no new trades until tomorrow"),
                           profitToday, AccountInfoString(ACCOUNT_CURRENCY), InpMaxDailyLossPct));
    }
 
@@ -962,7 +1083,7 @@ void Notify(string msg)
    if(MQLInfoInteger(MQL_TESTER))
       return;
    if(InpNotifyPush && !SendNotification(full))
-      Print("ส่ง Push ไม่สำเร็จ - ตั้ง MetaQuotes ID ใน Tools > Options > Notifications แล้วหรือยัง? (error ",
+      Print("Push notification failed - is your MetaQuotes ID set in Tools > Options > Notifications? (error ",
             GetLastError(), ")");
    if(InpNotifyPopup)
       Alert(full);
@@ -1008,7 +1129,7 @@ void CreatePanel()
    int by = InpPanelY + 10 + LINE_H * PANEL_LINES + 4;
    MakeButton(PFX + "btnPause", InpPanelX + 10,  by, 130, 26);
    MakeButton(PFX + "btnClose", InpPanelX + 150, by, 130, 26);
-   ObjectSetString(0, PFX + "btnClose", OBJPROP_TEXT, "ปิดทุกไม้");
+   ObjectSetString(0, PFX + "btnClose", OBJPROP_TEXT, L("ปิดทุกไม้", "Close all"));
    MakeButton(PFX + "btnStyle1", InpPanelX + 10,  by + 32, 130, 24);
    MakeButton(PFX + "btnStyle2", InpPanelX + 150, by + 32, 130, 24);
    ObjectSetString(0, PFX + "btnStyle1", OBJPROP_TEXT, L("โหมด 1: วันละ 1 ไม้", "Mode 1: 1 trade/day"));
@@ -1048,7 +1169,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    string ccy = AccountInfoString(ACCOUNT_CURRENCY);
 
    // open position summary
-   string posText = "ไม่มี";
+   string posText = L("ไม่มี", "none");
    int    posCount = 0;
    double posPL = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -1063,39 +1184,39 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(posCount > 0)
       posText += StringFormat(" | P/L %.2f %s", posPL, ccy);
    if(posCount > 0 && tiValid)
-      posText += StringFormat(" | มั่นใจ %d/4", ti.score);
+      posText += StringFormat(L(" | มั่นใจ %d/4", " | conf. %d/4"), ti.score);
 
    string reason = BlockReason(tradesToday, profitToday);
    string status;
    color  statusClr;
    if(reason != "")      { status = reason;               statusClr = clrOrange; }
-   else if(posCount > 0) { status = "กำลังถือออเดอร์";      statusClr = clrDeepSkyBlue; }
-   else                  { status = "พร้อมเทรด - รอสัญญาณ"; statusClr = clrLimeGreen; }
+   else if(posCount > 0) { status = L("กำลังถือออเดอร์", "In a trade");      statusClr = clrDeepSkyBlue; }
+   else                  { status = L("พร้อมเทรด - รอสัญญาณ", "Ready - waiting for a signal"); statusClr = clrLimeGreen; }
 
    double atr[];
    string atrText = GetBuf(hATR, atr) ? DoubleToString(atr[0], 2) : "-";
    double spread  = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
    string news;
-   if(!InpNewsFilter)                    news = "ปิดตัวกรองข่าว";
-   else if(MQLInfoInteger(MQL_TESTER))   news = "ใช้ไม่ได้ใน Tester";
-   else if(newsNextInfo == "")           news = "ไม่มีใน 24 ชม.";
+   if(!InpNewsFilter)                    news = L("ปิดตัวกรองข่าว", "news filter off");
+   else if(MQLInfoInteger(MQL_TESTER))   news = L("ใช้ไม่ได้ใน Tester", "n/a in the tester");
+   else if(newsNextInfo == "")           news = L("ไม่มีใน 24 ชม.", "none in 24 h");
    else                                  news = newsNextInfo;
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.38", clrGold);
-   SetLine(1, "สถานะ: " + status, statusClr);
-   SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
+   SetLine(0, "GoldScalper M15  v1.39", clrGold);
+   SetLine(1, L("สถานะ: ", "Status: ") + status, statusClr);
+   SetLine(2, L("ออเดอร์: ", "Trade: ") + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StyleLine(), clrKhaki);
-   SetLine(4, StringFormat("วันนี้: %d/%s ไม้ | P/L %.2f %s", tradesToday, MaxTradesEff() > 0 ? (string)MaxTradesEff() : "∞", profitToday, ccy),
+   SetLine(4, StringFormat(L("วันนี้: %d/%s ไม้ | P/L %.2f %s", "Today: %d/%s trades | P/L %.2f %s"), tradesToday, MaxTradesEff() > 0 ? (string)MaxTradesEff() : "∞", profitToday, ccy),
            profitToday < 0 ? clrTomato : clrWhiteSmoke);
-   SetLine(5, StringFormat("สเปรด: %.2f / %.2f | ATR: %s", spread, InpMaxSpread, atrText),
+   SetLine(5, StringFormat(L("สเปรด: %.2f / %.2f | ATR: %s", "Spread: %.2f / %.2f | ATR: %s"), spread, InpMaxSpread, atrText),
            spread > InpMaxSpread ? clrOrange : clrWhiteSmoke);
-   SetLine(6, "ข่าวถัดไป: " + news, newsBlocked ? clrOrange : clrSilver);
+   SetLine(6, L("ข่าวถัดไป: ", "Next news: ") + news, newsBlocked ? clrOrange : clrSilver);
 
    string bp = PFX + "btnPause";
-   ObjectSetString(0, bp, OBJPROP_TEXT, paused ? "เทรดต่อ" : "หยุดชั่วคราว");
+   ObjectSetString(0, bp, OBJPROP_TEXT, paused ? L("เทรดต่อ", "Resume") : L("หยุดชั่วคราว", "Pause"));
    ObjectSetInteger(0, bp, OBJPROP_BGCOLOR, paused ? C'40,130,70' : C'180,120,30');
    ObjectSetInteger(0, PFX + "btnStyle1", OBJPROP_BGCOLOR, styleRt == STYLE_ONE   ? C'40,130,70' : C'60,64,80');
    ObjectSetInteger(0, PFX + "btnStyle2", OBJPROP_BGCOLOR, styleRt == STYLE_MULTI ? C'40,130,70' : C'60,64,80');
@@ -1119,7 +1240,7 @@ bool NewsBlackout()
       static bool warned = false;
       if(!warned)
       {
-         Print("ตัวกรองข่าวใช้ไม่ได้ใน Strategy Tester (MT5 ไม่ให้เข้าถึงปฏิทินข่าว) - ข้ามการกรองข่าว");
+         Print("The news filter cannot run in the Strategy Tester (no calendar access) - news filter skipped");
          warned = true;
       }
       return false;
@@ -1179,15 +1300,15 @@ bool NewsBlackout()
 
    if(newsBlocked && !wasBlocked)
    {
-      Print("เข้าช่วงข่าว - งดเปิดไม้ใหม่: ", newsBlockInfo);
+      Print(L("เข้าช่วงข่าว - งดเปิดไม้ใหม่: ", "News window - no new trades: "), newsBlockInfo);
       if(InpNotifyNews)
-         Notify("เข้าช่วงข่าว งดเปิดไม้ใหม่: " + newsBlockInfo);
+         Notify(L("เข้าช่วงข่าว งดเปิดไม้ใหม่: ", "News window started - no new trades: ") + newsBlockInfo);
    }
    if(!newsBlocked && wasBlocked)
    {
-      Print("พ้นช่วงข่าว - กลับมาเทรดได้");
+      Print(L("พ้นช่วงข่าว - กลับมาเทรดได้", "News window over - trading allowed"));
       if(InpNotifyNews)
-         Notify("พ้นช่วงข่าวแล้ว กลับมาเทรดได้");
+         Notify(L("พ้นช่วงข่าวแล้ว กลับมาเทรดได้", "News window over - trading allowed again"));
    }
    return newsBlocked;
 }
@@ -1216,7 +1337,7 @@ void CloseAll()
    {
       ulong ticket = PositionGetTicket(i);
       if(ticket > 0 && IsMine())
-         trade.PositionClose(ticket);
+         ClosePosition(ticket, L("ปิดทั้งหมด", "close all"));
    }
 }
 
@@ -1338,7 +1459,17 @@ double CalcLots(double slDist)
    double perLot = LossPerLot(slDist);
    if(perLot <= 0)
       return NormalizeLots(InpLots);
-   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * RiskPctEff() / 100.0 / perLot);
+   return NormalizeLots(AccountInfoDouble(ACCOUNT_EQUITY) * RiskPctEff() / 100.0 / RiskPerLot(slDist));
+}
+
+// Real money lost per 1 lot if the stop is hit: SL distance from the actual entry price
+// (spread included, since a buy enters at the ask) + slippage allowance + commission.
+double RiskPerLot(double slDist)
+{
+   double perLot = LossPerLot(slDist + InpSlippagePts * _Point);
+   if(perLot <= 0)
+      return 0;
+   return perLot + InpCommissionLot;
 }
 
 //+------------------------------------------------------------------+
@@ -1375,10 +1506,10 @@ double LotsForRisk(double pct, double slDist)
 {
    if(lotModeRt == LOT_FIXED)
       return NormalizeLots(InpLots);
-   double perLot = LossPerLot(slDist);
+   double perLot = RiskPerLot(slDist);
    if(perLot <= 0)
       return 0;
-   return NormalizeLots(AccountInfoDouble(ACCOUNT_BALANCE) * pct / 100.0 / perLot);
+   return NormalizeLots(AccountInfoDouble(ACCOUNT_EQUITY) * pct / 100.0 / perLot);
 }
 
 // Text describing both modes, with the tested results and today's lot size.
@@ -1478,9 +1609,10 @@ void AccountCheck(bool popup)
    if(GetBuf(hATR, atr) && atr[0] > 0)
    {
       slDist = MathMax(atr[0] * InpSL_ATR, MinStopDistance());
-      perLot = LossPerLot(slDist);
+      perLot = RiskPerLot(slDist);   // SL + slippage allowance + commission
    }
-   if(bal <= 0 || perLot <= 0)
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(bal <= 0 || eq <= 0 || perLot <= 0)
    {
       if(!popup)
       {
@@ -1494,17 +1626,18 @@ void AccountCheck(bool popup)
    }
 
    double slMin      = perLot * minLot;                 // money lost at min lot if SL is hit
-   double riskMinPct = slMin / bal * 100.0;
+   double riskMinPct = slMin / eq * 100.0;
    double lots       = CalcLots(slDist);
    double riskNow    = perLot * lots;
-   double riskNowPct = riskNow / bal * 100.0;
+   double riskNowPct = riskNow / eq * 100.0;
    double marginMin  = 0;
    if(!OrderCalcMargin(ORDER_TYPE_BUY, _Symbol, minLot, SymbolInfoDouble(_Symbol, SYMBOL_ASK), marginMin))
       marginMin = 0;
-   double maxRisk    = InpMaxRiskPct > 0 ? InpMaxRiskPct : 5.0;
+   bool   strict     = lotModeRt == LOT_RISK && InpStrictRisk;
+   double maxRisk    = strict ? RiskPctEff() : (InpMaxRiskPct > 0 ? InpMaxRiskPct : 5.0);
    double needMin    = slMin / (maxRisk / 100.0);       // smallest balance the risk guard accepts
    double need1      = slMin / 0.01;                    // balance for 1% risk at min lot
-   bool   canRisk1   = bal * 0.01 / perLot >= minLot;   // 1%-risk sizing gives at least the min lot
+   bool   canRisk1   = eq * 0.01 / perLot >= minLot;   // 1%-risk sizing gives at least the min lot
    // Account kind: Cent = balance in US cents; Micro = contract 100x smaller than standard gold (100 oz).
    string ccyUp = ccy;
    StringToUpper(ccyUp);
@@ -1534,7 +1667,8 @@ void AccountCheck(bool popup)
    string optYes = "", optNo = "", optCancel = "";
    int    level;   // 0 cannot trade, 1 high risk, 2 OK
    bool   offerSwitch = false;   // popup offers switching to 1% risk lots
-   if(marginMin > freeM || (InpMaxRiskPct > 0 && riskNowPct > InpMaxRiskPct)) level = 0;
+   if(marginMin > freeM || (InpMaxRiskPct > 0 && riskNowPct > InpMaxRiskPct) ||
+      (strict && riskNowPct > RiskPctEff() * 1.0001))                         level = 0;
    else if(riskNowPct > 2.0)                           level = 1;
    else                                                level = 2;
 
