@@ -1,28 +1,48 @@
 ﻿//+------------------------------------------------------------------+
 //|                                              GoldScalperM15.mq5  |
-//|  XAUUSD M15 scalper: trend filter (EMA200) + EMA 9/21 direction   |
-//|  + pullback-to-EMA9 rejection candle + RSI confirmation.          |
+//|  XAUUSD M15 intraday EA. Default (v1.30): Asian-range breakout    |
+//|  on volatile days, wide ATR stop, flat by 20:00 (no swap).         |
+//|  Other selectable strategies: EMA pullback, Donchian, RSI(2).     |
 //|  Fixed lot, ATR-based SL/TP, breakeven, trailing stop,            |
 //|  session / spread / daily-trade / daily-loss / news filters,      |
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.20"
-#property description "XAUUSD M15 scalper - fixed lot, ATR SL/TP, news filter, panel"
+#property version   "1.30"
+#property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
+
+enum ENUM_STRATEGY
+{
+   STRAT_PULLBACK = 0,  // EMA pullback (v1.x)
+   STRAT_BREAKOUT = 1,  // Donchian breakout ตามเทรนด์
+   STRAT_RSI2     = 2,  // RSI(2) ย่อตัวในเทรนด์
+   STRAT_ORB      = 3   // Opening Range Breakout (กรอบราคาช่วงเช้า)
+};
 
 //--- inputs
 input group "=== ทั่วไป ==="
 input double          InpLots            = 0.01;      // Lot คงที่
 input ulong           InpMagic           = 20261013;  // Magic number
 input ENUM_TIMEFRAMES InpTF              = PERIOD_M15;// Timeframe สัญญาณ
+input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // กลยุทธ์
+input bool            InpAllowBuy        = true;      // อนุญาตฝั่ง Buy
+input bool            InpAllowSell       = true;      // อนุญาตฝั่ง Sell
 
 input group "=== สัญญาณเข้า ==="
-input int    InpFastEMA     = 9;     // EMA เร็ว
-input int    InpSlowEMA     = 21;    // EMA ช้า
+input ENUM_TIMEFRAMES InpTrendTF = PERIOD_CURRENT; // TF ของ EMA เทรนด์ (CURRENT = ใช้ TF สัญญาณ)
 input int    InpTrendEMA    = 200;   // EMA เทรนด์
-input int    InpRSIPeriod   = 14;    // RSI period
+input int    InpFastEMA     = 9;     // [Pullback] EMA เร็ว
+input int    InpSlowEMA     = 21;    // [Pullback] EMA ช้า
+input int    InpBreakoutBars = 20;   // [Breakout] จำนวนแท่ง Donchian
+input int    InpRSI2Period  = 2;     // [RSI2] RSI period
+input double InpRSI2Entry   = 10.0;  // [RSI2] Buy เมื่อ RSI < x (Sell เมื่อ > 100-x)
+input double InpRSI2Exit    = 70.0;  // [RSI2] ปิด Buy เมื่อ RSI > x (ปิด Sell เมื่อ < 100-x, 0 = ปิด)
+input bool   InpUseTrend    = false; // ใช้ตัวกรอง EMA เทรนด์ (Pullback ใช้เสมอ)
+input int    InpRangeStartHour = 0;  // [ORB] เริ่มวัดกรอบ (ชั่วโมง เวลาเซิร์ฟเวอร์)
+input int    InpRangeEndHour   = 8;  // [ORB] จบกรอบ / เริ่มรอเบรก (ชั่วโมง)
+input int    InpRSIPeriod   = 14;    // [Pullback] RSI period
 input double InpRSIBuyMin   = 50.0;  // RSI ขั้นต่ำฝั่ง Buy
 input double InpRSIBuyMax   = 70.0;  // RSI สูงสุดฝั่ง Buy (กันไล่ราคา)
 input double InpRSISellMin  = 30.0;  // RSI ขั้นต่ำฝั่ง Sell (กันไล่ราคา)
@@ -30,18 +50,22 @@ input double InpRSISellMax  = 50.0;  // RSI สูงสุดฝั่ง Sell
 
 input group "=== SL / TP (คูณ ATR) ==="
 input int    InpATRPeriod   = 14;    // ATR period
-input double InpSL_ATR      = 1.2;   // SL = ATR x
-input double InpTP_ATR      = 1.5;   // TP = ATR x
-input double InpBE_ATR      = 0.8;   // เลื่อน Breakeven เมื่อกำไร >= ATR x (0 = ปิด)
-input double InpTrail_ATR   = 1.0;   // Trailing ห่าง ATR x (0 = ปิด)
+input double InpSL_ATR      = 4.0;   // SL = ATR x
+input double InpTP_ATR      = 0.0;   // TP = ATR x (0 = ไม่ตั้ง TP)
+input double InpBE_ATR      = 0.0;   // เลื่อน Breakeven เมื่อกำไร >= ATR x (0 = ปิด)
+input double InpTrail_ATR   = 0.0;   // Trailing ห่าง ATR x (0 = ปิด)
+input double InpTrailStart_ATR = -1; // เริ่ม Trailing เมื่อกำไร >= ATR x (-1 = เท่ากับระยะ Trailing)
 
 input group "=== ตัวกรอง ==="
-input int    InpStartHour       = 8;    // เริ่มเทรด (ชั่วโมง เวลาเซิร์ฟเวอร์)
-input int    InpEndHour         = 20;   // หยุดเปิดไม้ใหม่ (ชั่วโมง เวลาเซิร์ฟเวอร์)
-input double InpMaxSpread       = 0.40; // สเปรดสูงสุด (หน่วยราคา เช่น 0.40 = 40 cents)
+input int    InpStartHour       = 0;    // เริ่มเทรด (ชั่วโมง เวลาเซิร์ฟเวอร์)
+input int    InpEndHour         = 18;   // หยุดเปิดไม้ใหม่ (ชั่วโมง เวลาเซิร์ฟเวอร์)
+input double InpMaxSpread       = 1.00; // สเปรดสูงสุด (หน่วยราคา เช่น 0.40 = 40 cents)
 input double InpMinATR          = 0.0;  // ATR ขั้นต่ำ (หน่วยราคา, 0 = ปิด) กันตลาดนิ่ง
-input int    InpMaxTradesPerDay = 5;    // จำนวนไม้สูงสุดต่อวัน
+input double InpMinDailyATRPct  = 1.6;  // ATR รายวันขั้นต่ำ เป็น % ของราคา (0 = ปิด) เทรดเฉพาะวันที่ผันผวนพอ
+input double InpMaxRiskPct      = 5.0;  // ข้ามไม้ถ้า SL เสียเกิน % ของบาลานซ์ (0 = ปิด)
+input int    InpMaxTradesPerDay = 1;    // จำนวนไม้สูงสุดต่อวัน
 input double InpMaxDailyLossPct = 3.0;  // หยุดเทรดเมื่อขาดทุนวันนี้ >= % ของบาลานซ์ (0 = ปิด)
+input int    InpDailyCloseHour  = 20;   // ปิดออเดอร์ทุกวันเมื่อถึงชั่วโมงนี้ (หลบ swap, -1 = ปิด)
 input bool   InpCloseFriday     = true; // ปิดออเดอร์ก่อนตลาดปิดวันศุกร์
 input int    InpFridayCloseHour = 21;   // ชั่วโมงที่ปิดวันศุกร์ (เวลาเซิร์ฟเวอร์)
 
@@ -68,7 +92,7 @@ input int    InpPanelY    = 30;    // ตำแหน่งแผง Y (พิ�
 #define PFX "GS15_"
 
 CTrade   trade;
-int      hFast, hSlow, hTrend, hRSI, hATR;
+int      hFast, hSlow, hTrend, hRSI, hRSI2, hATR, hATRD1;
 datetime lastBarTime     = 0;
 datetime newsLastCheck   = 0;
 bool     newsBlocked     = false;
@@ -90,12 +114,16 @@ int OnInit()
 
    hFast  = iMA(_Symbol, InpTF, InpFastEMA,  0, MODE_EMA, PRICE_CLOSE);
    hSlow  = iMA(_Symbol, InpTF, InpSlowEMA,  0, MODE_EMA, PRICE_CLOSE);
-   hTrend = iMA(_Symbol, InpTF, InpTrendEMA, 0, MODE_EMA, PRICE_CLOSE);
+   ENUM_TIMEFRAMES trendTF = (InpTrendTF == PERIOD_CURRENT) ? InpTF : InpTrendTF;
+   hTrend = iMA(_Symbol, trendTF, InpTrendEMA, 0, MODE_EMA, PRICE_CLOSE);
    hRSI   = iRSI(_Symbol, InpTF, InpRSIPeriod, PRICE_CLOSE);
+   hRSI2  = iRSI(_Symbol, InpTF, InpRSI2Period, PRICE_CLOSE);
    hATR   = iATR(_Symbol, InpTF, InpATRPeriod);
+   hATRD1 = iATR(_Symbol, PERIOD_D1, 14);
 
    if(hFast == INVALID_HANDLE || hSlow == INVALID_HANDLE || hTrend == INVALID_HANDLE ||
-      hRSI == INVALID_HANDLE || hATR == INVALID_HANDLE)
+      hRSI == INVALID_HANDLE || hRSI2 == INVALID_HANDLE || hATR == INVALID_HANDLE ||
+      hATRD1 == INVALID_HANDLE)
    {
       Print("สร้าง indicator ไม่สำเร็จ: ", GetLastError());
       return INIT_FAILED;
@@ -127,7 +155,23 @@ void OnDeinit(const int reason)
    IndicatorRelease(hSlow);
    IndicatorRelease(hTrend);
    IndicatorRelease(hRSI);
+   IndicatorRelease(hRSI2);
    IndicatorRelease(hATR);
+   IndicatorRelease(hATRD1);
+}
+
+//+------------------------------------------------------------------+
+//| Optimizer score (Strategy Tester only): recovery factor, but     |
+//| zero for unprofitable or statistically thin results.             |
+//+------------------------------------------------------------------+
+double OnTester()
+{
+   double trades = TesterStatistics(STAT_TRADES);
+   double profit = TesterStatistics(STAT_PROFIT);
+   double pf     = TesterStatistics(STAT_PROFIT_FACTOR);
+   if(trades < 150 || profit <= 0 || pf < 1.1)
+      return 0;
+   return TesterStatistics(STAT_RECOVERY_FACTOR);
 }
 
 //+------------------------------------------------------------------+
@@ -151,6 +195,14 @@ void OnTick()
       return;
    }
 
+   if(InpDailyCloseHour >= 0 && CountPositions() > 0)
+   {
+      MqlDateTime now;
+      TimeToStruct(TimeCurrent(), now);
+      if(now.hour >= InpDailyCloseHour)
+         CloseAll();
+   }
+
    bool newsNow = NewsBlackout();
    if(newsNow && InpNewsClosePos && CountPositions() > 0)
    {
@@ -161,6 +213,8 @@ void OnTick()
    if(!IsNewBar())
       return;
 
+   ExitOnSignal();
+
    if(CountPositions() > 0)
       return;
 
@@ -170,32 +224,127 @@ void OnTick()
    if(BlockReason(tradesToday, profitToday) != "")
       return;
 
-   double fast[], slow[], trend[], rsi[], atr[];
-   if(!GetBuf(hFast, fast) || !GetBuf(hSlow, slow) || !GetBuf(hTrend, trend) ||
-      !GetBuf(hRSI, rsi) || !GetBuf(hATR, atr))
+   double atr[];
+   if(!GetBuf(hATR, atr))
       return;
+   double a = atr[0];
+   if(InpMinATR > 0 && a < InpMinATR) return;
 
-   // index 0 = last closed bar
+   int signal = GetSignal();
+   if(signal > 0 && InpAllowBuy)       OpenTrade(ORDER_TYPE_BUY,  a);
+   else if(signal < 0 && InpAllowSell) OpenTrade(ORDER_TYPE_SELL, a);
+}
+
+//+------------------------------------------------------------------+
+//| Entry signals, evaluated on the last closed bar of InpTF.        |
+//| Returns +1 buy, -1 sell, 0 none.                                 |
+//+------------------------------------------------------------------+
+int GetSignal()
+{
+   double trend[];
+   if(!GetBuf(hTrend, trend))
+      return 0;
+
    double o = iOpen(_Symbol, InpTF, 1);
    double h = iHigh(_Symbol, InpTF, 1);
    double l = iLow(_Symbol, InpTF, 1);
    double c = iClose(_Symbol, InpTF, 1);
-   double a = atr[0];
 
-   if(InpMinATR > 0 && a < InpMinATR) return;
+   switch(InpStrategy)
+   {
+      case STRAT_PULLBACK:
+      {
+         double fast[], slow[], rsi[];
+         if(!GetBuf(hFast, fast) || !GetBuf(hSlow, slow) || !GetBuf(hRSI, rsi))
+            return 0;
+         if(c > trend[0] && fast[0] > slow[0]       // uptrend
+            && l <= fast[0] && c > fast[0]           // dipped into EMA9 and closed back above
+            && c > o                                 // bullish candle
+            && rsi[0] >= InpRSIBuyMin && rsi[0] <= InpRSIBuyMax)
+            return 1;
+         if(c < trend[0] && fast[0] < slow[0]       // downtrend
+            && h >= fast[0] && c < fast[0]           // spiked into EMA9 and closed back below
+            && c < o                                 // bearish candle
+            && rsi[0] >= InpRSISellMin && rsi[0] <= InpRSISellMax)
+            return -1;
+         return 0;
+      }
 
-   bool buySignal = c > trend[0] && fast[0] > slow[0]   // uptrend
-                 && l <= fast[0] && c > fast[0]          // dipped into EMA9 and closed back above
-                 && c > o                                // bullish candle
-                 && rsi[0] >= InpRSIBuyMin && rsi[0] <= InpRSIBuyMax;
+      case STRAT_BREAKOUT:
+      {
+         // close beyond the highest high / lowest low of the N bars before the signal bar
+         int hi = iHighest(_Symbol, InpTF, MODE_HIGH, InpBreakoutBars, 2);
+         int lo = iLowest(_Symbol, InpTF, MODE_LOW, InpBreakoutBars, 2);
+         if(hi < 0 || lo < 0)
+            return 0;
+         if(c > iHigh(_Symbol, InpTF, hi) && TrendOK(1, c, trend[0]))  return 1;
+         if(c < iLow(_Symbol, InpTF, lo)  && TrendOK(-1, c, trend[0])) return -1;
+         return 0;
+      }
 
-   bool sellSignal = c < trend[0] && fast[0] < slow[0]  // downtrend
-                  && h >= fast[0] && c < fast[0]         // spiked into EMA9 and closed back below
-                  && c < o                               // bearish candle
-                  && rsi[0] >= InpRSISellMin && rsi[0] <= InpRSISellMax;
+      case STRAT_ORB:
+      {
+         // Today's range between InpRangeStartHour and InpRangeEndHour (server time);
+         // signal on the first close beyond it after the range has formed.
+         datetime barTime = iTime(_Symbol, InpTF, 1);
+         MqlDateTime bt;
+         TimeToStruct(barTime, bt);
+         if(bt.hour < InpRangeEndHour)
+            return 0;
+         datetime day0 = barTime - (barTime % 86400);
+         datetime rs = day0 + InpRangeStartHour * 3600;
+         datetime re = day0 + InpRangeEndHour * 3600 - 1;
+         double hs[], ls[];
+         if(CopyHigh(_Symbol, InpTF, rs, re, hs) < 2 || CopyLow(_Symbol, InpTF, rs, re, ls) < 2)
+            return 0;
+         double rHigh = hs[ArrayMaximum(hs)];
+         double rLow  = ls[ArrayMinimum(ls)];
+         double prev  = iClose(_Symbol, InpTF, 2);
+         if(c > rHigh && prev <= rHigh && TrendOK(1, c, trend[0]))  return 1;
+         if(c < rLow  && prev >= rLow  && TrendOK(-1, c, trend[0])) return -1;
+         return 0;
+      }
 
-   if(buySignal)       OpenTrade(ORDER_TYPE_BUY,  a);
-   else if(sellSignal) OpenTrade(ORDER_TYPE_SELL, a);
+      case STRAT_RSI2:
+      {
+         double r[];
+         if(!GetBuf(hRSI2, r))
+            return 0;
+         if(r[0] < InpRSI2Entry && TrendOK(1, c, trend[0]))          return 1;
+         if(r[0] > 100.0 - InpRSI2Entry && TrendOK(-1, c, trend[0])) return -1;
+         return 0;
+      }
+   }
+   return 0;
+}
+
+// Trend filter shared by the non-pullback strategies (can be switched off).
+bool TrendOK(int dir, double close, double trendEma)
+{
+   if(!InpUseTrend)
+      return true;
+   return dir > 0 ? close > trendEma : close < trendEma;
+}
+
+// Strategy-specific exits checked once per new bar.
+void ExitOnSignal()
+{
+   if(InpStrategy != STRAT_RSI2 || InpRSI2Exit <= 0)
+      return;
+
+   double r[];
+   if(!GetBuf(hRSI2, r))
+      return;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !IsMine())
+         continue;
+      bool isBuy = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY;
+      if((isBuy && r[0] > InpRSI2Exit) || (!isBuy && r[0] < 100.0 - InpRSI2Exit))
+         trade.PositionClose(ticket);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -279,8 +428,35 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    bool   isBuy = type == ORDER_TYPE_BUY;
    double price = isBuy ? ask : bid;
    double sl    = NormPrice(isBuy ? ask - slDist : bid + slDist);
-   double tp    = NormPrice(isBuy ? ask + tpDist : bid - tpDist);
+   double tp    = InpTP_ATR > 0 ? NormPrice(isBuy ? ask + tpDist : bid - tpDist) : 0;   // 0 = no TP
    string side  = isBuy ? "BUY" : "SELL";
+
+   // Skip when the stop is so far away that one loss would exceed InpMaxRiskPct of balance.
+   if(InpMaxRiskPct > 0)
+   {
+      double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
+      if(tickVal > 0 && tickSize > 0)
+      {
+         double riskMoney = slDist / tickSize * tickVal * lots;
+         if(riskMoney > balance * InpMaxRiskPct / 100.0)
+         {
+            NotifyFailure(StringFormat("ข้าม %s: SL เสี่ยง %.2f (%.1f%% ของบาลานซ์) เกินกำหนด %.1f%%", side,
+                                       riskMoney, riskMoney / balance * 100.0, InpMaxRiskPct));
+            return;
+         }
+      }
+   }
+   // Skip (and warn at most once a day) when free margin can't cover the order.
+   double margin;
+   if(OrderCalcMargin(type, _Symbol, lots, price, margin) &&
+      margin > AccountInfoDouble(ACCOUNT_MARGIN_FREE))
+   {
+      NotifyFailure(StringFormat("มาร์จิ้นไม่พอเปิด %s %.2f lot (ต้องใช้ %.2f, มี %.2f)", side, lots,
+                                 margin, AccountInfoDouble(ACCOUNT_MARGIN_FREE)));
+      return;
+   }
 
    bool ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, "GoldScalper BUY")
                    : trade.Sell(lots, _Symbol, bid, sl, tp, "GoldScalper SELL");
@@ -292,8 +468,23 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
                              DoubleToString(sl, _Digits), DoubleToString(tp, _Digits)));
    }
    else
-      Notify(StringFormat("เปิด %s ไม่สำเร็จ: %d %s", side, trade.ResultRetcode(),
-                          trade.ResultRetcodeDescription()));
+      NotifyFailure(StringFormat("เปิด %s ไม่สำเร็จ: %d %s", side, trade.ResultRetcode(),
+                                 trade.ResultRetcodeDescription()));
+}
+
+// Failures can repeat every bar; log each one but alert the phone at most once a day.
+void NotifyFailure(string msg)
+{
+   static int lastDay = -1;
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   if(dt.day_of_year == lastDay)
+   {
+      Print(msg);
+      return;
+   }
+   lastDay = dt.day_of_year;
+   Notify(msg + " (แจ้งครั้งเดียวต่อวัน)");
 }
 
 //+------------------------------------------------------------------+
@@ -311,6 +502,7 @@ void ManagePositions()
    double minDist = MinStopDistance();
    double bid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask     = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double trailStart = InpTrailStart_ATR < 0 ? InpTrail_ATR : InpTrailStart_ATR;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
@@ -333,7 +525,7 @@ void ManagePositions()
             target = open + a * 0.1;                      // lock a small profit
             beNow  = sl < open;
          }
-         if(InpTrail_ATR > 0 && gain >= a * InpTrail_ATR)
+         if(InpTrail_ATR > 0 && gain >= a * trailStart)
             target = MathMax(target, bid - a * InpTrail_ATR);
          if(target <= 0)
             continue;
@@ -349,7 +541,7 @@ void ManagePositions()
             target = open - a * 0.1;
             beNow  = sl == 0 || sl > open;
          }
-         if(InpTrail_ATR > 0 && gain >= a * InpTrail_ATR)
+         if(InpTrail_ATR > 0 && gain >= a * trailStart)
             target = (target > 0) ? MathMin(target, ask + a * InpTrail_ATR) : ask + a * InpTrail_ATR;
          if(target <= 0)
             continue;
@@ -372,6 +564,7 @@ string BlockReason(int tradesToday, double profitToday)
    if(tradesToday >= InpMaxTradesPerDay)  return "ครบจำนวนไม้วันนี้";
    if(!InSession())                       return "นอกเวลาเทรด";
    if(!SpreadOK())                        return "สเปรดกว้างเกิน";
+   if(!VolatilityOK())                    return "ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง";
    return "";
 }
 
@@ -518,7 +711,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.20", clrGold);
+   SetLine(0, "GoldScalper M15  v1.30", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StringFormat("วันนี้: %d/%d ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay, profitToday, ccy),
@@ -674,6 +867,16 @@ bool IsFridayClose()
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
    return dt.day_of_week == 5 && dt.hour >= InpFridayCloseHour;
+}
+
+// Daily ATR (last closed D1 bar) as % of price must reach InpMinDailyATRPct.
+bool VolatilityOK()
+{
+   if(InpMinDailyATRPct <= 0)
+      return true;
+   double d1[];
+   double price = iClose(_Symbol, InpTF, 1);
+   return GetBuf(hATRD1, d1) && price > 0 && d1[0] / price * 100.0 >= InpMinDailyATRPct;
 }
 
 bool SpreadOK()

@@ -1,8 +1,12 @@
-# GoldScalperM15 v1.20 — User Guide
+# GoldScalperM15 v1.30 — User Guide
 
-XAUUSD (Gold) scalping EA for MetaTrader 5 on the M15 timeframe — fixed lot, ATR-based SL/TP, news filter, on-chart control panel and mobile push notifications.
+XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
-> ⚠️ This EA's profitability has not been proven. Always backtest and run it on a demo account before using real money.
+> ⚠️ Backtests (2018–2026, PF 1.56, max DD ~10% on $3,000) do not guarantee future results. Always run on a demo account first.
+
+## Capital
+
+One stop-loss at 0.01 lot usually costs **$15–$100+**. Recommended balance: **$3,000+** ($1,000 works with ~25% drawdown). Below that the risk guard (`InpMaxRiskPct`, default 5%) skips trades — with $100 on a standard account it skips **all** of them. For small balances use a cent/micro account.
 
 ---
 
@@ -12,7 +16,7 @@ XAUUSD (Gold) scalping EA for MetaTrader 5 on the M15 timeframe — fixed lot, A
 |---|---|
 | `GoldScalperM15.mq5` | Source code (edit in MetaEditor) |
 | `install_to_MT5.bat` | Double-click to compile and install/update the EA in MT5 |
-| `presets\*.set` | Three ready-made input presets |
+| `presets\*.set` | Validated default preset (same as the EA defaults) |
 | `compile.log` | Created during installation — compiler output, safe to delete |
 
 ## 1. Install / update the EA
@@ -28,7 +32,7 @@ Run it again whenever you change `GoldScalperM15.mq5`.
 1. Open an **XAUUSD** chart (the name may differ by broker, e.g. `XAUUSDm`, `GOLD`). Any chart timeframe works — the EA always uses M15 for signals.
 2. Press **Ctrl+N** → Expert Advisors → MyEA → drag **GoldScalperM15** onto the chart.
 3. **Common** tab → tick **Allow Algo Trading**.
-4. **Inputs** tab → click **Load** → choose a preset (see section 4) → OK.
+4. **Inputs** tab → the defaults are the validated settings (optionally **Load** `GoldScalperM15_v130_Default.set`) → OK.
 5. Make sure the **Algo Trading** button in the top toolbar is green.
 
 ## 3. On-chart control panel
@@ -51,6 +55,7 @@ The panel (top-left of the chart) shows:
 | 🟠 Max trades reached | Daily trade limit reached |
 | 🟠 Outside trading hours | Outside the configured session |
 | 🟠 Spread too wide | Spread is above the configured maximum |
+| 🟠 Low volatility | Daily ATR is below `InpMinDailyATRPct` — the EA waits for a volatile day (normal in quiet markets) |
 
 **Buttons**
 - **Pause / Resume** — stops opening new trades (open trades are still managed). The setting is remembered across MT5 restarts.
@@ -58,23 +63,20 @@ The panel (top-left of the chart) shows:
 
 > The panel text in v1.20 is in Thai.
 
-## 4. Presets
+## 4. Strategy and key settings
 
-| Setting | Safe | Normal | Active |
-|---|---|---|---|
-| RSI Buy / Sell | 52–65 / 35–48 | 50–70 / 30–50 | 50–75 / 25–50 |
-| SL / TP (× ATR) | 1.5 / 1.5 | 1.2 / 1.5 | 1.0 / 1.3 |
-| Breakeven (× ATR) | 0.6 | 0.8 | 0.8 |
-| Trading hours (server time) | 09–18 | 08–20 | 07–22 |
-| Max spread | 0.35 | 0.40 | 0.50 |
-| Max trades per day | 3 | 5 | 8 |
-| Daily loss limit | 2% | 3% | 4% |
-| News filtered | Medium + high | High | High |
-| Pause before / after news | 45 / 45 min | 30 / 30 | 15 / 15 |
-| Close positions at news | ✅ | ❌ | ❌ |
+| Setting | Default | Meaning |
+|---|---|---|
+| `InpStrategy` | ORB | Asian-range breakout (other modes are kept for research) |
+| `InpRangeStartHour` / `InpRangeEndHour` | 0 / 8 | Range window, server time |
+| `InpMinDailyATRPct` | 1.6 | Trade only when daily ATR ≥ 1.6% of price |
+| `InpSL_ATR` | 4.0 | Stop-loss = 4 × M15 ATR; no TP / breakeven / trailing |
+| `InpMaxTradesPerDay` | 1 | One breakout trade per day |
+| `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
+| `InpMaxRiskPct` | 5.0 | Skip a trade if its stop would lose > 5% of balance |
+| `InpMaxSpread` | 1.00 | Maximum spread in price units |
 
-All presets use a 0.01 lot — adjust `InpLots` after loading.
-
+Times are **broker server time** and were validated on XM Global (GMT+2/+3).
 ## 5. Mobile push notifications
 
 1. Install the **MetaTrader 5** app on your phone → **Settings** (or Messages) → note your **MetaQuotes ID** (8 characters).
