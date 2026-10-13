@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.40 — User Guide
+# GoldScalperM15 v1.41 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -72,6 +72,7 @@ The panel (top-left of the chart) shows:
 | 🟢 Ready - waiting for signal | All filters pass; waiting for a qualifying M15 candle |
 | 🔵 Holding position | A trade is open; the EA is managing SL/TP/trailing |
 | 🟠 Paused | You pressed the pause button |
+| 🔴 Halted: drawdown limit / losing streak | A risk guard paused the EA. Review the recent trades, then press **Resume** (panel or console key `P`). Resuming starts the peak and the streak count afresh |
 | 🟠 News window | Inside the window before/after a high-impact event |
 | 🟠 Daily loss limit reached | Today's loss hit the configured % — wait for tomorrow |
 | 🟠 Max trades reached | Daily trade limit reached |
@@ -108,6 +109,10 @@ The panel (top-left of the chart) shows:
 | `InpSlippagePts` | 30 | Slippage allowance at the SL (points), included in the real risk |
 | `InpCommissionLot` | 0 | Round-turn commission per lot (0 on XM Standard) |
 | `InpMaxRiskPct` | 5.0 | Hard cap: skip a trade if its stop would lose > 5% of equity |
+| `InpMaxDDPct` | 20 | Halt (pause, phone alert) when equity falls 20% below its peak. 0 = off. Never reached in 2018–2026 (max DD 14.8%) |
+| `InpMaxLossStreak` | 5 | Halt after 5 losing trades in a row. 0 = off. Would have fired 9 times in 2018–2026 (about once a year) |
+| `InpMaxExposure` | 10 | Lot cap: position value ≤ 10 × equity (typical trades are 1–3 ×), against a bad ATR or a tiny stop. 0 = off |
+| `InpMaxLot` | 0 | Optional fixed maximum lot per trade. 0 = off |
 | `InpMaxSpread` | 1.00 | Maximum spread in price units |
 | `InpMinConfidence` | 1 | Confidence score 0–4 required to enter: +1 each for D1 trend (EMA50), H1 trend (EMA200), ADX H1 20–30, RSI(14) ≥ 70 in trade direction. 0 = off |
 | `InpLossCooldownMin` | 20 | Pause new entries for N minutes after a losing trade |

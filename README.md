@@ -1,11 +1,11 @@
 # GoldScalperM15
 
-![Version](https://img.shields.io/badge/version-1.40-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.41-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
 
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
 with strict risk-based position sizing, a volatility filter, news filter, loss diagnosis, an on-chart control panel, a PowerShell console and mobile push notifications.
 
-**Current version: v1.40** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+**Current version: v1.41** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 
 ![On-chart control panel on a GOLD M15 chart](docs/images/panel.png)
 
@@ -78,6 +78,7 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 5. **Exit:** all positions are closed at **20:00 server time**, so no overnight swap. XM's gold swap was the main reason holding strategies failed in testing.
 6. **Position size:** risk-based by default: Lot = Equity × Risk% ÷ (SL + slippage + commission per lot), rounded down (`InpLotMode`, `InpRiskPct`, `InpMultiRiskPct`). **Strict:** if the minimum lot would exceed the target %, the trade is skipped with the reason (`InpStrictRisk`).
 7. **Risk guards:** daily loss budget: a trade is skipped if its stop would push today's loss past the 3% daily limit (`InpMaxDailyLossPct`); hard cap of 5% of equity per trade (`InpMaxRiskPct`); every close is verified and retried; one order at a time across charts; the loss cooldown and pause survive an MT5 restart.
+   **Halts** (the EA pauses itself and waits for you to review and press Resume; open trades keep their SL): equity 20% below its peak (`InpMaxDDPct`), or 5 losing trades in a row (`InpMaxLossStreak`). **Lot cap:** position value ≤ 10 × equity (`InpMaxExposure`) and an optional fixed maximum (`InpMaxLot`), against a bad ATR or a tiny stop. In 2018–2026 ($3,000) the drawdown halt never fired and the losing-streak halt would have asked for a review 9 times, about once a year.
 8. **Confidence score (0–4):** +1 each for trading with the D1 trend, with the H1 trend, ADX(H1) 20–30 and RSI ≥ 70 in the trade direction; entries need ≥ 1 (`InpMinConfidence`). Each condition separated winners from losers in both 2018–2023 and 2024–2026. Score-0 trades lost money in both periods. The filter improved 2018–2026 (PF 1.56 → 1.63) but cost some profit in the 2024–2026 rally.
 9. **Loss diagnosis & journal:** every loss is tagged with reasons (failed breakout, against trend, gave back profit, …) in the phone alert and in a CSV journal; 20-minute cooldown after a loss.
 

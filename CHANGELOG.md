@@ -2,6 +2,13 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.41 — Risk guards: drawdown halt, losing-streak halt, lot cap
+- **Drawdown halt** (`InpMaxDDPct`, 20%): when equity falls this far below its peak, the EA pauses itself and sends an alert. Open trades keep their SL and the daily close.
+- **Losing-streak halt** (`InpMaxLossStreak`, 5): the same after this many losing trades in a row.
+- After a halt the EA waits for a person: review, then press **Resume** on the panel or `P` in the console. Resuming starts the peak and the streak afresh. The panel and console show `Halted: ...` with the reason. The peak, streak and halt survive an MT5 restart.
+- **Lot cap:** position value ≤ `InpMaxExposure` × equity (10; typical trades are 1–3 ×), plus an optional fixed `InpMaxLot`. A bad ATR or an unusually close stop can no longer produce an oversized lot. The lot is reduced with a warning, or the trade is skipped if the cap is below the minimum lot. Based on the tick value, so it works the same on Standard, Micro and Cent accounts.
+- In the tester nobody can press Resume, so halts are counted and the test carries on. 2018–2026, $3,000, mode 1: results identical to v1.40 (+$2,670.83, PF 1.45, DD 14.8%, 473 trades); the lot cap never triggered, the drawdown halt never fired, and the losing-streak halt would have fired 9 times.
+
 ## v1.40 — PowerShell console
 - **`GS15_Console.bat`** opens a PowerShell window with:
   - the EA's live status: account, equity, mode, status, open trade, today's trades and P/L, spread/ATR, next news;

@@ -9,8 +9,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.40"
-#define   VERSION_TEXT "1.40"
+#property version   "1.41"
+#define   VERSION_TEXT "1.41"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -93,6 +93,10 @@ input double InpCommissionLot   = 0.0;  // Round-turn commission per 1 lot (acco
 input double InpMaxRiskPct      = 5.0;  // Hard cap: skip if the SL would lose more than % of equity (0 = off)
 input int    InpMaxTradesPerDay = 1;    // Max trades per day in mode 1 (0 = unlimited)
 input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
+input double InpMaxDDPct        = 20.0; // Halt: pause when equity falls this % below its peak (0 = off)
+input int    InpMaxLossStreak   = 5;    // Halt: pause after this many losing trades in a row (0 = off)
+input double InpMaxLot          = 0.0;  // Max lot per trade (0 = off)
+input double InpMaxExposure     = 10.0; // Max position value as a multiple of equity, caps the lot (0 = off)
 input int    InpDailyCloseHour  = 20;   // Close all trades daily at this hour (avoids swap, -1 = off)
 input bool   InpCloseFriday     = true; // Close trades before the Friday market close
 input int    InpFridayCloseHour = 21;   // Friday close hour (server time)
@@ -173,6 +177,13 @@ string   newsBlockInfo   = "";
 string   newsNextInfo    = "";
 bool     paused          = false;
 string   gvPaused        = "";
+string   gvPeak          = "";          // equity peak, for the drawdown halt
+string   gvStreak        = "";          // losing trades in a row
+string   gvHalt          = "";          // why the EA paused itself: 0 none, 1 drawdown, 2 losing streak
+double   equityPeak      = 0;
+int      lossStreak      = 0;
+int      haltCode        = 0;
+int      testerHalts[3]  = {0, 0, 0};   // tester: how often each halt would have fired
 ENUM_TRADE_STYLE styleRt = STYLE_ONE;   // mode in effect (input, or chosen with the panel buttons)
 string   gvStyle         = "";
 string   gvStyleIn       = "";          // the input value when the mode was chosen
@@ -236,6 +247,18 @@ int OnInit()
    // Pause state survives timeframe changes and terminal restarts.
    gvPaused = PFX + "paused_" + _Symbol + "_" + (string)InpMagic;
    paused   = GlobalVariableCheck(gvPaused) && GlobalVariableGet(gvPaused) > 0;
+
+   // Risk-guard state survives restarts as well.
+   gvPeak   = PFX + "peak_" + _Symbol + "_" + (string)InpMagic;
+   gvStreak = PFX + "streak_" + _Symbol + "_" + (string)InpMagic;
+   gvHalt   = PFX + "halt_" + _Symbol + "_" + (string)InpMagic;
+   if(!MQLInfoInteger(MQL_TESTER))
+   {
+      equityPeak = GlobalVariableCheck(gvPeak) ? GlobalVariableGet(gvPeak) : 0;
+      lossStreak = GlobalVariableCheck(gvStreak) ? (int)GlobalVariableGet(gvStreak) : 0;
+      haltCode   = paused && GlobalVariableCheck(gvHalt) ? (int)GlobalVariableGet(gvHalt) : 0;
+   }
+   UpdatePeak();
 
    // Loss cooldown survives restarts too.
    gvCooldown = PFX + "cooldown_" + _Symbol + "_" + (string)InpMagic;
@@ -301,6 +324,9 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   if(MQLInfoInteger(MQL_TESTER) && (InpMaxDDPct > 0 || InpMaxLossStreak > 0))
+      PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s) "
+                  "(live trading pauses until you resume; the tester carries on)", testerHalts[1], testerHalts[2]);
    ObjectsDeleteAll(0, PFX);
    IndicatorRelease(hFast);
    IndicatorRelease(hSlow);
@@ -339,6 +365,7 @@ void OnTimer()
    }
    ReadConsoleCommand();
    TestStep();
+   UpdatePeak();
    RefreshStatus();
 }
 
@@ -400,6 +427,7 @@ void TestStep()
 void OnTick()
 {
    ManagePositions();
+   UpdatePeak();
 
    if(InpCloseFriday && IsFridayClose())
    {
@@ -649,6 +677,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       WriteJournal(price, pl, exitCode, codes);
    tiValid = false;
 
+   if(pl < 0)       lossStreak++;
+   else if(pl > 0)  lossStreak = 0;
+   if(!MQLInfoInteger(MQL_TESTER))
+      GlobalVariableSet(gvStreak, lossStreak);
+
    string closeMsg = StringFormat("%s %s @ %s | P/L %.2f %s%s", how, side, DoubleToString(price, _Digits),
                                   pl, AccountInfoString(ACCOUNT_CURRENCY),
                                   pl < 0 ? L(" | แพ้เพราะ: ", " | Lost because: ") + thai : "");
@@ -656,6 +689,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       Notify(closeMsg, pl < 0 ? "LOSS" : "WIN");
    else
       ConsoleLog(pl < 0 ? "LOSS" : "WIN", closeMsg);
+
+   if(InpMaxLossStreak > 0 && lossStreak >= InpMaxLossStreak)
+      Halt(2, StringFormat(L("แพ้ติดกัน %d ไม้ (เพดาน %d)", "%d losing trades in a row (limit %d)"), lossStreak, InpMaxLossStreak));
 }
 
 //+------------------------------------------------------------------+
@@ -804,8 +840,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
    if(sparam == PFX + "btnPause")
    {
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
-      paused = !paused;
-      GlobalVariableSet(gvPaused, paused ? 1 : 0);
+      SetPaused(!paused);
       Print(paused ? L("หยุดเปิดไม้ใหม่ชั่วคราว (ออเดอร์ที่ถืออยู่ยังดูแล SL/TP ต่อ)", "Paused: no new trades (open trades keep their SL/TP)") : L("กลับมาเทรดตามปกติ", "Trading resumed"));
    }
    else if(sparam == PFX + "btnClose")
@@ -854,6 +889,21 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    double sl    = NormPrice(isBuy ? ask - slDist : bid + slDist);
    double tp    = InpTP_ATR > 0 ? NormPrice(isBuy ? ask + tpDist : bid - tpDist) : 0;   // 0 = no TP
    string side  = isBuy ? "BUY" : "SELL";
+
+   // Lot cap: guards against a bad ATR / tiny stop producing an oversized position.
+   double cap = MaxLotCap(price);
+   if(cap > 0 && lots > cap)
+   {
+      double minL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+      if(cap < minL)
+      {
+         Notify(StringFormat(L("ข้าม %s: เพดาน lot %.3f ต่ำกว่า lot ขั้นต่ำ %.2f", "Skipped %s: lot cap %.3f is below the minimum lot %.2f"), side, cap, minL), "SKIP");
+         return;
+      }
+      Notify(StringFormat(L("ลด lot %s จาก %.2f เหลือ %.2f ตามเพดาน lot (SL ใกล้ผิดปกติ? ATR %.2f)", "%s lot reduced from %.2f to %.2f by the lot cap (unusually close SL? ATR %.2f)"),
+                          side, lots, NormalizeLots(cap), atr), "WARN");
+      lots = NormalizeLots(cap);
+   }
 
    // Real risk of this order: SL from the actual entry price + slippage allowance + commission,
    // measured against equity.
@@ -1082,6 +1132,34 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, StringFormat("market=Spread %.2f / %.2f | ATR %s\r\n", spread, InpMaxSpread, atrText));
    FileWriteString(f, "news="     + (newsNextInfo != "" ? newsNextInfo : "-") + "\r\n");
    FileWriteString(f, "lang="     + (InpLanguage == LANG_TH ? "TH" : "EN") + "\r\n");
+
+   // Plain values for the console layout (v1.41).
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskNow = -1;                    // % of equity the open trade loses at its SL (-1 = no trade / no SL)
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(PositionGetTicket(i) == 0 || !IsMine() || PositionGetDouble(POSITION_SL) <= 0 || eq <= 0)
+         continue;
+      double dist = MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - PositionGetDouble(POSITION_SL));
+      riskNow = RiskPerLot(dist) * PositionGetDouble(POSITION_VOLUME) / eq * 100.0;
+   }
+   string state = pos != L("ไม่มี", "none") ? "IN TRADE"
+                : paused && haltCode != 0  ? "HALTED"
+                : paused                   ? "PAUSED"
+                : reason != ""             ? "ENTRY BLOCKED" : "READY";
+   FileWriteString(f, "state="      + state + "\r\n");
+   FileWriteString(f, "reason="     + (reason != "" ? reason : (state == "IN TRADE" ? L("ดูแล SL และปิดตอน ", "Managing SL; daily close at ") + (string)InpDailyCloseHour + ":00"
+                                                                                      : L("รอแท่ง M15 ที่เข้าเงื่อนไข", "Waiting for a qualifying M15 close"))) + "\r\n");
+   FileWriteString(f, "tf="         + StringSubstr(EnumToString(InpTF), 7) + "\r\n");
+   FileWriteString(f, "accttype="   + (demo ? "Demo" : "REAL") + "\r\n");
+   FileWriteString(f, "ccy="        + ccy + "\r\n");
+   FileWriteString(f, StringFormat("eqv=%.2f\r\nplv=%.2f\r\n", eq, profitToday));
+   FileWriteString(f, StringFormat("trades=%d\r\nmaxtrades=%d\r\n", tradesToday, MaxTradesEff()));
+   FileWriteString(f, StringFormat("risktarget=%.2f\r\nriskactual=%.2f\r\n", lotModeRt == LOT_RISK ? RiskPctEff() : 0.0, riskNow));
+   FileWriteString(f, StringFormat("spreadv=%.2f\r\nspreadmax=%.2f\r\natrv=%s\r\n", spread, InpMaxSpread, atrText));
+   FileWriteString(f, StringFormat("ddv=%.2f\r\nddmax=%.1f\r\nstreak=%d\r\nstreakmax=%d\r\n",
+                                   equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, InpMaxDDPct, lossStreak, InpMaxLossStreak));
+   FileWriteString(f, "servertime=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
    FileClose(f);
 }
 
@@ -1118,8 +1196,7 @@ void ReadConsoleCommand()
    }
    else if(cmd == "PAUSE" || cmd == "RESUME")
    {
-      paused = cmd == "PAUSE";
-      GlobalVariableSet(gvPaused, paused ? 1 : 0);
+      SetPaused(cmd == "PAUSE");
       Notify(paused ? L("หยุดเปิดไม้ใหม่ชั่วคราว (จาก console)", "Paused: no new trades (from the console)")
                     : L("กลับมาเทรดตามปกติ (จาก console)", "Trading resumed (from the console)"));
    }
@@ -1210,6 +1287,8 @@ void ManagePositions()
 string BlockReason(int tradesToday, double profitToday)
 {
    if(TestActive())                       return StringFormat(L("ทดสอบระบบ %d/%d ไม้", "System test %d/%d trades"), testDone, InpTestTrades);
+   if(paused && haltCode == 1)            return L("หยุด: พอร์ตลดลงเกินเพดาน - ตรวจแล้วกด Resume", "Halted: drawdown limit - review, then Resume");
+   if(paused && haltCode == 2)            return L("หยุด: แพ้ติดกันครบเพดาน - ตรวจแล้วกด Resume", "Halted: losing streak - review, then Resume");
    if(paused)                             return L("หยุดชั่วคราว (กดปุ่ม)", "Paused (button)");
    if(TimeCurrent() < cooldownUntil)      return L("พักหลังแพ้ ถึง ", "Pause after loss until ") + TimeToString(cooldownUntil, TIME_MINUTES);
    if(newsBlocked)                        return L("งดเทรด ช่วงข่าว", "News window - no trades");
@@ -1644,6 +1723,84 @@ double RiskPerLot(double slDist)
 }
 
 //+------------------------------------------------------------------+
+//| Risk guards: lot cap, drawdown halt, losing-streak halt           |
+//+------------------------------------------------------------------+
+// Largest lot allowed (0 = no cap): InpMaxLot, and position value <= InpMaxExposure x equity.
+// Uses the tick value, so it works the same on Standard, Micro and Cent accounts.
+double MaxLotCap(double price)
+{
+   double cap = InpMaxLot > 0 ? InpMaxLot : 0;
+   double tickVal  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(InpMaxExposure > 0 && tickVal > 0 && tickSize > 0 && price > 0)
+   {
+      double valuePerLot = price / tickSize * tickVal;
+      double expCap = AccountInfoDouble(ACCOUNT_EQUITY) * InpMaxExposure / valuePerLot;
+      cap = cap > 0 ? MathMin(cap, expCap) : expCap;
+   }
+   return cap;
+}
+
+// Equity peak for the drawdown halt; checked on every tick and every second.
+void UpdatePeak()
+{
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(eq <= 0)
+      return;
+   if(eq > equityPeak)
+   {
+      equityPeak = eq;
+      if(!MQLInfoInteger(MQL_TESTER))
+         GlobalVariableSet(gvPeak, equityPeak);
+   }
+   if(InpMaxDDPct > 0 && !paused && eq < equityPeak * (1.0 - InpMaxDDPct / 100.0))
+      Halt(1, StringFormat(L("Equity %.2f ลดลง %.1f%% จากจุดสูงสุด %.2f (เพดาน %.1f%%)", "equity %.2f is %.1f%% below its peak of %.2f (limit %.1f%%)"),
+                           eq, (1.0 - eq / equityPeak) * 100.0, equityPeak, InpMaxDDPct));
+}
+
+// The EA pauses itself and waits for a person: open trades keep their SL and the daily close.
+void Halt(int code, string why)
+{
+   if(MQLInfoInteger(MQL_TESTER))
+   {
+      // No one can press Resume in a backtest: count it, reset and carry on.
+      testerHalts[code]++;
+      Print("Risk guard would halt here: ", why);
+      ResetGuards();
+      return;
+   }
+   if(paused)
+      return;
+   SetPaused(true);
+   haltCode = code;
+   GlobalVariableSet(gvHalt, code);
+   Notify(L("หยุดเปิดไม้ใหม่อัตโนมัติ: ", "Halted - no new trades: ") + why +
+          L(" | ไม้ที่ถืออยู่ยังมี SL ตรวจดูแล้วกด Resume (แผงหรือ console)", " | Open trades keep their SL. Review, then press Resume (panel or console)"), "WARN");
+}
+
+// Resuming after a halt starts the counters afresh, so it does not halt again at once.
+void ResetGuards()
+{
+   equityPeak = AccountInfoDouble(ACCOUNT_EQUITY);
+   lossStreak = 0;
+   haltCode   = 0;
+   if(!MQLInfoInteger(MQL_TESTER))
+   {
+      GlobalVariableSet(gvPeak, equityPeak);
+      GlobalVariableSet(gvStreak, 0);
+      GlobalVariableSet(gvHalt, 0);
+   }
+}
+
+void SetPaused(bool p)
+{
+   if(!p && paused && haltCode != 0)
+      ResetGuards();
+   paused = p;
+   GlobalVariableSet(gvPaused, paused ? 1 : 0);
+}
+
+//+------------------------------------------------------------------+
 //| Trade mode: 1 = one bigger trade a day, 2 = several smaller ones |
 //+------------------------------------------------------------------+
 int MaxTradesEff()
@@ -1943,8 +2100,7 @@ void AccountCheck(bool popup)
                 (level == 1 && ((offerSwitch && answer == IDCANCEL) || (!offerSwitch && answer == IDNO)));
    if(pause)
    {
-      paused = true;
-      GlobalVariableSet(gvPaused, 1);
+      SetPaused(true);
    }
    if(level == 0 && answer == IDCANCEL)
       ExpertRemove();
