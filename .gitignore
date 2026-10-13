@@ -1,0 +1,7 @@
+# Compiled EA (build from source with MetaEditor or install_to_MT5.bat)
+*.ex5
+
+# Build / test output
+compile.log
+*.log
+reports/
