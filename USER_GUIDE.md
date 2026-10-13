@@ -1,14 +1,34 @@
-# GoldScalperM15 v1.33 — User Guide
+# GoldScalperM15 v1.34 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
 > ⚠️ Backtests (2018–2026, PF 1.56, max DD ~10% on $3,000) do not guarantee future results. Always run on a demo account first.
 
-## Capital
+## Capital and account type (from $10)
 
-One stop-loss at 0.01 lot usually costs **$15–$100+**. Recommended balance: **$3,000+** ($1,000 works with ~25% drawdown). Below that the risk guard (`InpMaxRiskPct`, default 5%) skips trades — with $100 on a standard account it skips **all** of them. For small balances use a cent/micro account.
+The default lot size is **1% risk per trade**, so the EA adapts to any balance. Pick the account type by balance:
 
----
+| Balance | Account |
+|---|---|
+| $10 – $999 | **Micro** or **Cent** (lots 100× smaller than Standard) |
+| $1,000+ | Standard, Micro or Cent |
+
+On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$1,000 the risk guard (`InpMaxRiskPct`, 5%) skips trades. The **account check** popup at start-up detects Standard / Micro / Cent and shows what you need.
+
+**Opening a Micro demo at XM:** on the XM website choose *Open Demo Account* → account type **Micro**, then log in to it in MT5 (you do this yourself). Check in Market Watch that GOLD is available and its contract size is 1. Cent accounts at other brokers show the balance in **USC**; the popup converts it to USD.
+
+**Presets:** `GoldScalperM15_Default.set` (1% risk) and `GoldScalperM15_Safe_0.5pct.set` (0.5% risk, about half the drawdown).
+
+| Micro / Cent balance | = Standard balance | Lot sizing | Net 2018–2026 | PF | Max DD |
+|---|---|---|---|---|---|
+| $10 | $1,000 | min lot (≈1–3% risk) | +203% | 1.52 | 18.0% |
+| $20 | $2,000 | 1% risk | +120% | 1.47 | 14.8% |
+| $50 | $5,000 | 1% risk | +108% | 1.43 | 16.1% |
+| $100 | $10,000 | 1% risk | +116% | 1.43 | 16.5% |
+| $100 | $10,000 | **0.5% risk (Safe preset)** | +41% | 1.40 | **8.2%** |
+| $1,000 | $100,000 | 1% risk | +134% | 1.45 | 17.1% |
+
+A Micro account is a Standard account scaled down 100× (contract 1 oz instead of 100 oz), and a Cent account counts the balance in US cents, so $10 on Micro/Cent behaves like $1,000 on Standard. That is how these 8.8-year tests were run (1-minute OHLC, XM GOLD). A direct real-tick test of $10 on a Micro contract (Aug–Oct 2026) gave +$1.79, PF 1.41, DD 12.2%.
 
 ## Files
 
@@ -32,7 +52,7 @@ Run it again whenever you change `GoldScalperM15.mq5`.
 1. Open an **XAUUSD** chart (the name may differ by broker, e.g. `XAUUSDm`, `GOLD`). Any chart timeframe works — the EA always uses M15 for signals.
 2. Press **Ctrl+N** → Expert Advisors → MyEA → drag **GoldScalperM15** onto the chart.
 3. **Common** tab → tick **Allow Algo Trading**.
-4. **Inputs** tab → the defaults are the validated settings (optionally **Load** `GoldScalperM15_v130_Default.set`) → OK.
+4. **Inputs** tab → the defaults are the validated settings (optionally **Load** `GoldScalperM15_Default.set`) → OK.
 5. Make sure the **Algo Trading** button in the top toolbar is green.
 
 ## 3. On-chart control panel
@@ -73,7 +93,7 @@ The panel (top-left of the chart) shows:
 | `InpSL_ATR` | 4.0 | Stop-loss = 4 × M15 ATR; no TP / breakeven / trailing |
 | `InpMaxTradesPerDay` | 1 | One breakout trade per day |
 | `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
-| `InpLotMode` | Fixed lot | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
+| `InpLotMode` | Risk % | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
 | `InpRiskPct` | 1.0 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
 | `InpMaxRiskPct` | 5.0 | Skip a trade if its stop would lose > 5% of balance |
 | `InpMaxSpread` | 1.00 | Maximum spread in price units |

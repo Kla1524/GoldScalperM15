@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.33"
+#property version   "1.34"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -35,7 +35,7 @@ enum ENUM_LOT_MODE
 
 //--- inputs
 input group "=== ทั่วไป ==="
-input ENUM_LOT_MODE   InpLotMode         = LOT_FIXED; // วิธีกำหนด Lot
+input ENUM_LOT_MODE   InpLotMode         = LOT_RISK;  // วิธีกำหนด Lot (คำนวณจาก % = ปรับตามทุนอัตโนมัติ)
 input double          InpLots            = 0.01;      // Lot คงที่ (ใช้เมื่อเลือก Lot คงที่)
 input double          InpRiskPct         = 1.0;       // % ความเสี่ยงต่อไม้ (ใช้เมื่อเลือกคำนวณจาก %)
 input ulong           InpMagic           = 20261013;  // Magic number
@@ -980,7 +980,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.33", clrGold);
+   SetLine(0, "GoldScalper M15  v1.34", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StringFormat("วันนี้: %d/%d ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay, profitToday, ccy),
@@ -1295,12 +1295,20 @@ void AccountCheck()
    double needMin    = slMin / (maxRisk / 100.0);       // smallest balance the risk guard accepts
    double need1      = slMin / 0.01;                    // balance for 1% risk at min lot
    bool   canRisk1   = bal * 0.01 / perLot >= minLot;   // 1%-risk sizing gives at least the min lot
+   // Account kind: Cent = balance in US cents; Micro = contract 100x smaller than standard gold (100 oz).
+   string ccyUp = ccy;
+   StringToUpper(ccyUp);
+   bool   cent  = StringFind(ccyUp, "USC") == 0;
+   bool   micro = !cent && contract > 0 && contract <= 10;
+   string kind  = cent ? "Cent" : micro ? "Micro" : "Standard";
+   string usd   = cent ? StringFormat(" (~%.2f USD)", bal / 100.0) : "";
+
    string mode       = lotModeRt == LOT_FIXED ? L("Lot คงที่", "fixed lot")
                                               : StringFormat(L("คำนวณจาก %.1f%%", "%.1f%% risk"), riskPctRt);
 
-   string m = StringFormat(L("บัญชี: %s | บาลานซ์ %.2f %s | Leverage 1:%I64d\n",
-                             "Account: %s | balance %.2f %s | leverage 1:%I64d\n"),
-                           demo ? "Demo" : L("เงินจริง", "Real"), bal, ccy, lev);
+   string m = StringFormat(L("บัญชี: %s %s | บาลานซ์ %.2f %s%s | Leverage 1:%I64d\n",
+                             "Account: %s %s | balance %.2f %s%s | leverage 1:%I64d\n"),
+                           kind, demo ? "Demo" : L("เงินจริง", "Real"), bal, ccy, usd, lev);
    m += StringFormat(L("สัญลักษณ์: %s | ขนาดสัญญา %.2f | Lot ขั้นต่ำ %.2f\n\n", "Symbol: %s | contract %.2f | min lot %.2f\n\n"),
                      _Symbol, contract, minLot);
    m += StringFormat(L("SL ตอนนี้ประมาณ %.2f (%.0f จุด) ตาม ATR - เปลี่ยนทุกวัน\n", "Current SL is about %.2f (%.0f points) from ATR - changes daily\n"),
@@ -1323,9 +1331,14 @@ void AccountCheck()
    if(level == 0)
    {
       m += L("ผล: ทุนไม่พอสำหรับบัญชีนี้ - EA จะข้ามทุกไม้\n", "Verdict: balance too small for this account - the EA will skip every trade\n");
-      m += StringFormat(L("แนะนำ:\n - ทุนขั้นต่ำที่ระบบกันความเสี่ยงยอมรับ ~%.0f %s (แนะนำ ~%.0f %s ที่เสี่ยง 1%%)\n - หรือใช้บัญชี Micro/Cent (lot เล็กกว่า 100 เท่า: ทุน ~%.0f %s ก็พอ)\n\n",
-                          "Recommendation:\n - Minimum balance the risk guard accepts: ~%.0f %s (recommended ~%.0f %s at 1%% risk)\n - Or use a Micro/Cent account (100x smaller lots: ~%.0f %s is enough)\n\n"),
-                        needMin, ccy, need1, ccy, MathCeil(needMin / 100.0), ccy);
+      if(micro || cent)
+         m += StringFormat(L("แนะนำ: ทุนขั้นต่ำที่ระบบกันความเสี่ยงยอมรับ ~%.0f %s (แนะนำ ~%.0f %s ที่เสี่ยง 1%%)\n\n",
+                             "Recommendation: minimum balance the risk guard accepts ~%.0f %s (recommended ~%.0f %s at 1%% risk)\n\n"),
+                           needMin, ccy, need1, ccy);
+      else
+         m += StringFormat(L("แนะนำ:\n - ทุนขั้นต่ำที่ระบบกันความเสี่ยงยอมรับ ~%.0f %s (แนะนำ ~%.0f %s ที่เสี่ยง 1%%)\n - หรือใช้บัญชี Micro/Cent (lot เล็กกว่า 100 เท่า: ทุน ~%.0f %s ก็พอ)\n\n",
+                             "Recommendation:\n - Minimum balance the risk guard accepts: ~%.0f %s (recommended ~%.0f %s at 1%% risk)\n - Or use a Micro/Cent account (100x smaller lots: ~%.0f %s is enough)\n\n"),
+                           needMin, ccy, need1, ccy, MathCeil(needMin / 100.0), ccy);
       buttons = MB_YESNOCANCEL | MB_ICONWARNING;
       optYes = L("ให้ EA ทำงานต่อ (รอและข้ามไม้ที่เสี่ยงเกิน)", "keep the EA running (it waits and skips risky trades)");
       optNo  = L("หยุดเปิดไม้ใหม่ชั่วคราว", "pause new trades");
