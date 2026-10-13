@@ -8,7 +8,7 @@
 //|  on-chart control panel and phone push notifications.             |
 //+------------------------------------------------------------------+
 #property copyright "Personal EA"
-#property version   "1.31"
+#property version   "1.32"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 
 #include <Trade\Trade.mqh>
@@ -96,11 +96,35 @@ input bool   InpShowPanel = true;  // แสดงแผงควบคุม
 input int    InpPanelX    = 10;    // ตำแหน่งแผง X (พิกเซล)
 input int    InpPanelY    = 30;    // ตำแหน่งแผง Y (พิกเซล)
 
+input group "=== วิเคราะห์ไม้แพ้ ==="
+input int    InpLossCooldownMin = 20;   // พักหลังไม้แพ้ (นาที, 0 = ปิด)
+input bool   InpJournal         = true; // บันทึกทุกไม้ + สาเหตุที่แพ้ ลง CSV (Common\Files)
+input int    InpMinConfidence   = 1;    // คะแนนความมั่นใจขั้นต่ำ 0-4 (เทรนด์ D1, เทรนด์ H1, ADX 20-30, RSI แรง; 0 = ปิด)
+
 //--- globals
 #define PFX "GS15_"
 
-CTrade   trade;
-int      hFast, hSlow, hTrend, hRSI, hRSI2, hATR, hATRD1;
+// Snapshot of the market at entry, plus excursion tracking, for the loss post-mortem.
+struct TradeInfo
+{
+   datetime openTime;
+   int      dir;                 // +1 buy, -1 sell
+   double   entry, sl, atr, lots;
+   double   rangeHigh, rangeLow; // ORB range (0 for other strategies)
+   double   atrD1Pct, rangeAtr, breakAtr, bodyRatio, rsi, adx, spread;
+   int      trendH1, trendD1;    // +1 = entry with the trend, -1 = against
+   int      hour, dow;
+   int      score;               // confidence score at entry (0-4)
+   double   mfe, mae;            // max favourable / adverse excursion (price)
+   bool     backInside;          // an M15 close came back inside the range
+};
+
+CTrade    trade;
+int       hFast, hSlow, hTrend, hRSI, hRSI2, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1;
+TradeInfo ti;
+bool      tiValid       = false;
+double    orbHigh       = 0, orbLow = 0;   // last ORB range seen by GetSignal()
+datetime  cooldownUntil = 0;
 datetime lastBarTime     = 0;
 datetime newsLastCheck   = 0;
 bool     newsBlocked     = false;
@@ -133,10 +157,14 @@ int OnInit()
    hRSI2  = iRSI(_Symbol, InpTF, InpRSI2Period, PRICE_CLOSE);
    hATR   = iATR(_Symbol, InpTF, InpATRPeriod);
    hATRD1 = iATR(_Symbol, PERIOD_D1, 14);
+   hEmaH1 = iMA(_Symbol, PERIOD_H1, 200, 0, MODE_EMA, PRICE_CLOSE);   // journal / diagnosis only
+   hEmaD1 = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_EMA, PRICE_CLOSE);
+   hAdxH1 = iADX(_Symbol, PERIOD_H1, 14);
 
    if(hFast == INVALID_HANDLE || hSlow == INVALID_HANDLE || hTrend == INVALID_HANDLE ||
       hRSI == INVALID_HANDLE || hRSI2 == INVALID_HANDLE || hATR == INVALID_HANDLE ||
-      hATRD1 == INVALID_HANDLE)
+      hATRD1 == INVALID_HANDLE || hEmaH1 == INVALID_HANDLE || hEmaD1 == INVALID_HANDLE ||
+      hAdxH1 == INVALID_HANDLE)
    {
       Print("สร้าง indicator ไม่สำเร็จ: ", GetLastError());
       return INIT_FAILED;
@@ -153,6 +181,10 @@ int OnInit()
    showPanel = InpShowPanel && (!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_VISUAL_MODE));
    if(showPanel)
       CreatePanel();
+
+   // Each single tester run starts a fresh journal (live trading appends).
+   if(InpJournal && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
+      FileDelete(JournalName(), FILE_COMMON);
 
    EventSetTimer(1);
    RefreshStatus();
@@ -171,6 +203,9 @@ void OnDeinit(const int reason)
    IndicatorRelease(hRSI2);
    IndicatorRelease(hATR);
    IndicatorRelease(hATRD1);
+   IndicatorRelease(hEmaH1);
+   IndicatorRelease(hEmaD1);
+   IndicatorRelease(hAdxH1);
 }
 
 //+------------------------------------------------------------------+
@@ -208,12 +243,20 @@ void OnTick()
       return;
    }
 
+   // Daily close. Also catches positions from a previous day: on early-close holidays
+   // there may be no tick between the close hour and midnight.
    if(InpDailyCloseHour >= 0 && CountPositions() > 0)
    {
       MqlDateTime now;
       TimeToStruct(TimeCurrent(), now);
-      if(now.hour >= InpDailyCloseHour)
-         CloseAll();
+      datetime today = TimeCurrent() - (TimeCurrent() % 86400);
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket > 0 && IsMine() &&
+            (now.hour >= InpDailyCloseHour || (datetime)PositionGetInteger(POSITION_TIME) < today))
+            trade.PositionClose(ticket);
+      }
    }
 
    bool newsNow = NewsBlackout();
@@ -223,8 +266,18 @@ void OnTick()
       Notify("ปิดออเดอร์เพราะเข้าช่วงข่าว: " + newsBlockInfo);
    }
 
+   TrackOpenTrade();
+
    if(!IsNewBar())
       return;
+
+   // Post-mortem input: did price close back inside the ORB range after entry?
+   if(tiValid && ti.rangeHigh > 0 && CountPositions() > 0)
+   {
+      double c1 = iClose(_Symbol, InpTF, 1);
+      if((ti.dir > 0 && c1 < ti.rangeHigh) || (ti.dir < 0 && c1 > ti.rangeLow))
+         ti.backInside = true;
+   }
 
    ExitOnSignal();
 
@@ -244,6 +297,15 @@ void OnTick()
    if(InpMinATR > 0 && a < InpMinATR) return;
 
    int signal = GetSignal();
+   if(signal != 0 && InpMinConfidence > 0)
+   {
+      int score = ConfidenceScore(signal);
+      if(score < InpMinConfidence)
+      {
+         Print(StringFormat("ข้ามสัญญาณ %s: ความมั่นใจต่ำ %d/4 (ต้อง >= %d)", signal > 0 ? "BUY" : "SELL", score, InpMinConfidence));
+         return;
+      }
+   }
    if(signal > 0 && InpAllowBuy)       OpenTrade(ORDER_TYPE_BUY,  a);
    else if(signal < 0 && InpAllowSell) OpenTrade(ORDER_TYPE_SELL, a);
 }
@@ -312,6 +374,8 @@ int GetSignal()
             return 0;
          double rHigh = hs[ArrayMaximum(hs)];
          double rLow  = ls[ArrayMinimum(ls)];
+         orbHigh = rHigh;
+         orbLow  = rLow;
          double prev  = iClose(_Symbol, InpTF, 2);
          if(c > rHigh && prev <= rHigh && TrendOK(1, c, trend[0]))  return 1;
          if(c < rLow  && prev >= rLow  && TrendOK(-1, c, trend[0])) return -1;
@@ -361,13 +425,13 @@ void ExitOnSignal()
 }
 
 //+------------------------------------------------------------------+
-//| Close notifications (SL / TP / manual / EA close)                |
+//| Position closed: loss post-mortem, journal, cooldown, alert       |
 //+------------------------------------------------------------------+
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result)
 {
-   if(!InpNotifyTrades || trans.type != TRADE_TRANSACTION_DEAL_ADD)
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD)
       return;
    if(!HistoryDealSelect(trans.deal))
       return;
@@ -380,16 +444,166 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       return;
 
    // The closing deal goes the opposite way of the position.
-   string side = HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_SELL ? "BUY" : "SELL";
-   double pl   = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
-               + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
-               + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
-   long   why  = HistoryDealGetInteger(trans.deal, DEAL_REASON);
-   string how  = why == DEAL_REASON_TP ? "ถึง TP" : why == DEAL_REASON_SL ? "โดน SL" : "ปิดไม้";
+   string side  = HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_SELL ? "BUY" : "SELL";
+   double price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+   double pl    = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
+                + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
+                + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+   long   why   = HistoryDealGetInteger(trans.deal, DEAL_REASON);
+   string how   = why == DEAL_REASON_TP ? "ถึง TP" : why == DEAL_REASON_SL ? "โดน SL" : "ปิดไม้";
+   string exitCode = why == DEAL_REASON_TP ? "TP" : why == DEAL_REASON_SL ? "SL" : "CLOSE";
 
-   Notify(StringFormat("%s %s @ %s | P/L %.2f %s", how, side,
-                       DoubleToString(HistoryDealGetDouble(trans.deal, DEAL_PRICE), _Digits),
-                       pl, AccountInfoString(ACCOUNT_CURRENCY)));
+   // Codes for the CSV, Thai text for the phone.
+   string codes = "", thai = "";
+   if(pl < 0)
+   {
+      LossReasons(exitCode, codes, thai);
+      if(InpLossCooldownMin > 0)
+         cooldownUntil = TimeCurrent() + InpLossCooldownMin * 60;
+   }
+   if(InpJournal && tiValid)
+      WriteJournal(price, pl, exitCode, codes);
+   tiValid = false;
+
+   if(InpNotifyTrades)
+      Notify(StringFormat("%s %s @ %s | P/L %.2f %s%s", how, side, DoubleToString(price, _Digits),
+                          pl, AccountInfoString(ACCOUNT_CURRENCY),
+                          pl < 0 ? " | แพ้เพราะ: " + thai : ""));
+}
+
+//+------------------------------------------------------------------+
+//| Trade journal and loss diagnosis                                 |
+//+------------------------------------------------------------------+
+string JournalName()
+{
+   return StringFormat("GS15_journal_%s_%I64u%s.csv", _Symbol, InpMagic,
+                       MQLInfoInteger(MQL_TESTER) ? "_tester" : "");
+}
+
+// Snapshot of the market on the signal bar, taken right after the order fills.
+void CaptureEntry(int dir, double entryPrice, double sl, double atr, double lots)
+{
+   ZeroMemory(ti);
+   ti.openTime = TimeCurrent();
+   ti.dir      = dir;
+   ti.entry    = entryPrice;
+   ti.sl       = sl;
+   ti.atr      = atr;
+   ti.lots     = lots;
+   ti.spread   = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   MqlDateTime dt;
+   TimeToStruct(ti.openTime, dt);
+   ti.hour = dt.hour;
+   ti.dow  = dt.day_of_week;
+
+   double o = iOpen(_Symbol, InpTF, 1), h = iHigh(_Symbol, InpTF, 1);
+   double l = iLow(_Symbol, InpTF, 1),  c = iClose(_Symbol, InpTF, 1);
+   ti.bodyRatio = h > l ? MathAbs(c - o) / (h - l) : 0;
+
+   if(InpStrategy == STRAT_ORB && orbHigh > orbLow && atr > 0)
+   {
+      ti.rangeHigh = orbHigh;
+      ti.rangeLow  = orbLow;
+      ti.rangeAtr  = (orbHigh - orbLow) / atr;
+      ti.breakAtr  = (dir > 0 ? c - orbHigh : orbLow - c) / atr;
+   }
+
+   double b[];
+   if(GetBuf(hRSI, b))   ti.rsi = b[0];
+   if(GetBuf(hAdxH1, b)) ti.adx = b[0];
+   if(GetBuf(hEmaH1, b)) ti.trendH1 = ((c > b[0]) == (dir > 0)) ? 1 : -1;
+   if(GetBuf(hEmaD1, b)) ti.trendD1 = ((c > b[0]) == (dir > 0)) ? 1 : -1;
+   if(GetBuf(hATRD1, b) && c > 0) ti.atrD1Pct = b[0] / c * 100.0;
+
+   ti.score = ConfidenceScore(dir);
+   tiValid = true;
+}
+
+// Confidence score 0-4 for a signal, from the last closed bars. Each point is a condition that
+// separated winners from losers in BOTH 2018-2023 and 2024-2026 (trade-journal analysis):
+// with the D1 trend (EMA50), with the H1 trend (EMA200), ADX(14) H1 in 20-30, RSI(14) M15 >= 70 in trade direction.
+int ConfidenceScore(int dir)
+{
+   double c = iClose(_Symbol, InpTF, 1);
+   double b[];
+   int score = 0;
+   if(GetBuf(hEmaD1, b) && (c > b[0]) == (dir > 0)) score++;
+   if(GetBuf(hEmaH1, b) && (c > b[0]) == (dir > 0)) score++;
+   if(GetBuf(hAdxH1, b) && b[0] >= 20 && b[0] < 30) score++;
+   if(GetBuf(hRSI, b) && (dir > 0 ? b[0] : 100.0 - b[0]) >= 70) score++;
+   return score;
+}
+
+// Max favourable / adverse excursion of the open trade, every tick.
+void TrackOpenTrade()
+{
+   if(!tiValid)
+      return;
+   double px = ti.dir > 0 ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double move = (px - ti.entry) * ti.dir;
+   ti.mfe = MathMax(ti.mfe, move);
+   ti.mae = MathMax(ti.mae, -move);
+}
+
+// Rule-based reasons a losing trade went wrong (several can apply).
+void LossReasons(string exitCode, string &codes, string &thai)
+{
+   codes = "";
+   thai  = "";
+   if(!tiValid)
+   {
+      codes = "NO_SNAPSHOT";
+      thai  = "ไม่มีข้อมูลตอนเข้า (EA ถูกรีสตาร์ทระหว่างถือไม้)";
+      return;
+   }
+   if(ti.backInside)                        AddReason(codes, thai, "FALSE_BREAK", "เบรกหลอก ราคากลับเข้ากรอบ");
+   if(ti.trendH1 < 0)                       AddReason(codes, thai, "AGAINST_H1",  "สวนเทรนด์ H1 (EMA200)");
+   if(ti.trendD1 < 0)                       AddReason(codes, thai, "AGAINST_D1",  "สวนเทรนด์ D1 (EMA50)");
+   if(ti.adx > 0 && ti.adx < 20)            AddReason(codes, thai, "LOW_ADX",     "ไม่มีเทรนด์ (ADX H1 < 20)");
+   if(ti.bodyRatio < 0.5)                   AddReason(codes, thai, "WEAK_CANDLE", "แท่งเบรกอ่อน ไส้ยาว");
+   if(ti.breakAtr > 1.0)                    AddReason(codes, thai, "CHASED",      "เข้าไล่ราคา ปิดไกลจากกรอบ");
+   if((ti.dir > 0 && ti.rsi > 70) || (ti.dir < 0 && ti.rsi > 0 && ti.rsi < 30))
+                                            AddReason(codes, thai, "RSI_EXTREME", "RSI สุดทางตอนเข้า");
+   if(ti.atr > 0 && ti.mfe >= ti.atr)       AddReason(codes, thai, "GAVE_BACK",   "เคยกำไร >= 1 ATR แล้วกลับตัว");
+   if(exitCode == "CLOSE")                  AddReason(codes, thai, "NO_FOLLOW",   "ราคาไม่ไปต่อจนหมดเวลา");
+   if(ti.hour >= 15)                        AddReason(codes, thai, "LATE_ENTRY",  "เข้าช่วงบ่าย/ข่าว US");
+   if(codes == "")
+   {
+      codes = "NORMAL";
+      thai  = "ไม่พบจุดผิดปกติ (แพ้ตามสถิติ)";
+   }
+}
+
+void AddReason(string &codes, string &thai, string code, string text)
+{
+   codes += (codes == "" ? "" : "|") + code;
+   thai  += (thai == "" ? "" : ", ") + text;
+}
+
+void WriteJournal(double exitPrice, double pl, string exitCode, string codes)
+{
+   int f = FileOpen(JournalName(), FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ, ',');
+   if(f == INVALID_HANDLE)
+   {
+      Print("เขียน journal ไม่ได้: ", GetLastError());
+      return;
+   }
+   if(FileSize(f) == 0)
+      FileWrite(f, "open_time", "close_time", "dir", "lots", "entry", "exit", "pl", "result", "exit_reason",
+                "hour", "dow", "atr_m15", "atr_d1_pct", "range_atr", "break_atr", "body_ratio", "rsi14",
+                "adx_h1", "trend_h1", "trend_d1", "spread", "mfe_atr", "mae_atr", "back_inside", "confidence", "loss_reasons");
+   FileSeek(f, 0, SEEK_END);
+   double a = ti.atr > 0 ? ti.atr : 1;
+   FileWrite(f, TimeToString(ti.openTime, TIME_DATE | TIME_MINUTES), TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES),
+             ti.dir > 0 ? "BUY" : "SELL", DoubleToString(ti.lots, 2), DoubleToString(ti.entry, _Digits),
+             DoubleToString(exitPrice, _Digits), DoubleToString(pl, 2), pl >= 0 ? "WIN" : "LOSS", exitCode,
+             ti.hour, ti.dow, DoubleToString(ti.atr, 2), DoubleToString(ti.atrD1Pct, 2),
+             DoubleToString(ti.rangeAtr, 2), DoubleToString(ti.breakAtr, 2), DoubleToString(ti.bodyRatio, 2),
+             DoubleToString(ti.rsi, 1), DoubleToString(ti.adx, 1), ti.trendH1, ti.trendD1,
+             DoubleToString(ti.spread, 2), DoubleToString(ti.mfe / a, 2), DoubleToString(ti.mae / a, 2),
+             ti.backInside ? 1 : 0, ti.score, codes);
+   FileClose(f);
 }
 
 //+------------------------------------------------------------------+
@@ -467,6 +681,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
                    : trade.Sell(lots, _Symbol, bid, sl, tp, "GoldScalper SELL");
    if(ok)
    {
+      CaptureEntry(isBuy ? 1 : -1, trade.ResultPrice() > 0 ? trade.ResultPrice() : price, sl, atr, lots);
       if(InpNotifyTrades)
          Notify(StringFormat("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.1f%%)", side, lots,
                              DoubleToString(trade.ResultPrice() > 0 ? trade.ResultPrice() : price, _Digits),
@@ -566,6 +781,7 @@ void ManagePositions()
 string BlockReason(int tradesToday, double profitToday)
 {
    if(paused)                             return "หยุดชั่วคราว (กดปุ่ม)";
+   if(TimeCurrent() < cooldownUntil)      return "พักหลังแพ้ ถึง " + TimeToString(cooldownUntil, TIME_MINUTES);
    if(newsBlocked)                        return "งดเทรด ช่วงข่าว";
    if(DailyLossHit(profitToday))          return "ถึงเพดานขาดทุนวันนี้";
    if(tradesToday >= InpMaxTradesPerDay)  return "ครบจำนวนไม้วันนี้";
@@ -698,6 +914,8 @@ void UpdatePanel(int tradesToday, double profitToday)
    }
    if(posCount > 0)
       posText += StringFormat(" | P/L %.2f %s", posPL, ccy);
+   if(posCount > 0 && tiValid)
+      posText += StringFormat(" | มั่นใจ %d/4", ti.score);
 
    string reason = BlockReason(tradesToday, profitToday);
    string status;
@@ -718,7 +936,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.31", clrGold);
+   SetLine(0, "GoldScalper M15  v1.32", clrGold);
    SetLine(1, "สถานะ: " + status, statusClr);
    SetLine(2, "ออเดอร์: " + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StringFormat("วันนี้: %d/%d ไม้ | P/L %.2f %s", tradesToday, InpMaxTradesPerDay, profitToday, ccy),

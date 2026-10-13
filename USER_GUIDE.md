@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.31 — User Guide
+# GoldScalperM15 v1.32 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -77,6 +77,25 @@ The panel (top-left of the chart) shows:
 | `InpRiskPct` | 1.0 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
 | `InpMaxRiskPct` | 5.0 | Skip a trade if its stop would lose > 5% of balance |
 | `InpMaxSpread` | 1.00 | Maximum spread in price units |
+| `InpMinConfidence` | 1 | Confidence score 0–4 required to enter: +1 each for D1 trend (EMA50), H1 trend (EMA200), ADX H1 20–30, RSI(14) ≥ 70 in trade direction. 0 = off |
+| `InpLossCooldownMin` | 20 | Pause new entries for N minutes after a losing trade |
+| `InpJournal` | true | Log every trade with entry conditions and loss reasons to `MQL5\..\Common\Files\GS15_journal_GOLD_20261013.csv` (opens in Excel) |
+### Loss diagnosis
+
+After every losing trade the phone alert and the journal state *why* it lost (several reasons can apply):
+
+| Code | Meaning |
+|---|---|
+| FALSE_BREAK | Price closed back inside the range — a failed breakout (≈95% of losses in backtests) |
+| GAVE_BACK | Trade was ≥ 1 ATR in profit, then reversed |
+| AGAINST_D1 / AGAINST_H1 | Entry against the daily / hourly trend |
+| LOW_ADX | No trend on H1 (ADX < 20) |
+| WEAK_CANDLE | Breakout candle with a small body / long wick |
+| CHASED | Entry far beyond the range (> 1 ATR) |
+| RSI_EXTREME | RSI already overbought/oversold at entry |
+| NO_FOLLOW | No follow-through; closed at 20:00 with a loss |
+| LATE_ENTRY | Entry at 15:00 or later (US session / news) |
+| NORMAL | Nothing unusual — a statistically normal loss |
 
 Times are **broker server time** and were validated on XM Global (GMT+2/+3).
 ## 5. Mobile push notifications

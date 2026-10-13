@@ -7,15 +7,14 @@ with a volatility filter, per-trade risk guard, news filter, on-chart control pa
 
 ---
 
-## 📊 Backtest results (v1.30 defaults, XM Global `GOLD`, fixed 0.01 lot)
+## 📊 Backtest results (v1.32 defaults, XM Global `GOLD`, fixed 0.01 lot)
 
 | Period | Data | Deposit | Net profit | Profit factor | Max equity DD | Trades |
 |---|---|---|---|---|---|---|
-| 2018 – 2026 | 1-minute OHLC | $3,000 | +$2,332 | **1.56** | **9.8%** | 538 |
-| Oct 2024 – Oct 2026 | **real ticks (99%)** | $3,000 | +$1,962 | **1.65** | **10.8%** | 268 |
-| Oct 2024 – Oct 2026 | real ticks | $1,000 | +$1,598 | 1.55 | 24.4% | 260 |
+| 2018 – 2026 | 1-minute OHLC | $3,000 | +$2,387 | **1.63** | **9.0%** | 503 |
+| Oct 2024 – Oct 2026 | **real ticks (99%)** | $3,000 | +$1,693 | **1.61** | **10.2%** | 255 |
 
-Net profit by year (2018–2026, $3,000): 2018: no trades · 2019: +48 · 2020: +162 · 2021: −46 · 2022: +86 · 2023: +27 · 2024: +51 · 2025: +446 · 2026: +1,559
+Net profit by year (2018–2026, $3,000): 2018: no trades · 2019: +49 · 2020: +178 · 2021: −20 · 2022: +151 · 2023: +22 · 2024: +60 · 2025: +390 · 2026: +1,558
 
 **How it was validated**
 - Parameters were chosen on **2020–2023 only**, then checked on periods the optimizer never saw: **2024–2026** (forward) and **2018–2019**.
@@ -46,6 +45,8 @@ With a standard account (0.01 lot = 1 oz of gold), one stop-loss typically costs
 5. **Exit:** all positions are closed at **20:00 server time**, so no overnight swap. XM's gold swap was the main reason holding strategies failed in testing.
 6. **Position size:** fixed lot (default 0.01) or **risk-based**: Lot = Balance × Risk% ÷ SL points (`InpLotMode`, `InpRiskPct`). In tests at $3,000, 1% risk gave PF 1.66 / DD 10.8% and 2% risk PF 1.55 / DD 17.9% (real ticks, Oct 2024 – Oct 2026).
 7. **Risk guard:** skip any trade whose stop would lose more than 5% of balance.
+8. **Confidence score (0–4):** +1 each for trading with the D1 trend, with the H1 trend, ADX(H1) 20–30 and RSI ≥ 70 in the trade direction; entries need ≥ 1 (`InpMinConfidence`). Each condition separated winners from losers in both 2018–2023 and 2024–2026. Score-0 trades lost money in both periods. The filter improved 2018–2026 (PF 1.56 → 1.63) but cost some profit in the 2024–2026 rally.
+9. **Loss diagnosis & journal:** every loss is tagged with reasons (failed breakout, against trend, gave back profit, …) in the phone alert and in a CSV journal; 20-minute cooldown after a loss.
 
 Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable in tests), Donchian breakout, RSI(2) pullback.
 
