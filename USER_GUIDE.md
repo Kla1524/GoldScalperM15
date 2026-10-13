@@ -84,7 +84,7 @@ The panel (top-left of the chart) shows:
   - **Mode 1** one bigger trade a day (`InpRiskPct`, 1%): 2018–2026 +105%, PF 1.46, DD 16.3%
   - **Mode 2** several smaller trades, no daily limit (`InpMultiRiskPct`, 0.5%): +74%, PF 1.46, DD 10.5%
 
-> The panel text in v1.20 is in Thai.
+> The panel text is in Thai; the account-check and trade-mode windows follow `InpLanguage` (Thai / English).
 
 **System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 

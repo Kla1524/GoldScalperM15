@@ -1,8 +1,13 @@
 # GoldScalperM15
 
+![Version](https://img.shields.io/badge/version-1.38-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow)
+
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
 
 **Current version: v1.38** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+
+![On-chart control panel on a GOLD M15 chart](docs/images/panel.png)
+*On-chart panel (Thai UI): status, open trade, trade mode, today's trades and P/L, spread/ATR, next news event, and the Pause / Close all / Mode 1 / Mode 2 / Account check buttons.*
 with a volatility filter, per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
 > ⚠️ **Disclaimer** — This project is for educational purposes only and is not financial advice. Backtest results do not guarantee future performance. Gold is highly volatile: always run on a demo account first. You are solely responsible for your trading results.
@@ -115,6 +120,7 @@ presets/                    Validated default preset
 tools/backtest.ps1          Backtest / optimization automation
 USER_GUIDE.md               User guide (English)
 CHANGELOG.md                What changed in each version
+docs/images/                Screenshots
 คู่มือ_GoldScalperM15.md      User guide (Thai)
 ```
 
