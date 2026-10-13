@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.39 — User Guide
+# GoldScalperM15 v1.40 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -90,6 +90,8 @@ The panel (top-left of the chart) shows:
 
 **System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 
+**PowerShell console** — double-click `GS15_Console.bat` in the project folder. It shows the EA's live status and a colour event log, newest first: opened, won, lost (with the reason), skipped (with the money at risk), news and warnings. Keys: `1` / `2` switch mode (both modes are explained first), `P` pause / resume, `C` close all (type CLOSE to confirm), `L` full log in Notepad, `Q` quit. Commands reach the EA within about a second. The EA works the same with the console closed. Files live in MT5's common `Files` folder (`GS15_<symbol>_<magic>_status/log/cmd.txt`); `InpConsole = false` turns this off.
+
 ## 4. Strategy and key settings
 
 | Setting | Default | Meaning |
@@ -124,7 +126,7 @@ It then gives a verdict and lets you choose what to do:
 | High risk (> 2% per trade) | Switch to 1% risk lots · Keep settings · Pause |
 | Reasonable risk | Optionally switch to 1% risk lots (grows with the account) |
 
-`InpLanguage` selects **English / ไทย** for the panel, alerts and windows (English by default); `InpAccountCheck` turns the start-up check on or off. At start-up the check is printed to the **Experts** tab and needs no answer, so the EA keeps running when nobody is at the PC; set `InpAccountPopup = true` to get the popup instead (the EA waits until you answer). The panel button always opens the popup with choices. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
+`InpLanguage` selects **English / Thai** for the panel, alerts and windows (English by default); `InpAccountCheck` turns the start-up check on or off. At start-up the check is printed to the **Experts** tab and needs no answer, so the EA keeps running when nobody is at the PC; set `InpAccountPopup = true` to get the popup instead (the EA waits until you answer). The panel button always opens the popup with choices. A switch to 1% risk lots made in the popup lasts for the session only — set `InpLotMode` in Inputs to make it permanent.
 
 ### Loss diagnosis
 

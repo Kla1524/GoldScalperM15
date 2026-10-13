@@ -9,7 +9,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.39"
+#property version   "1.40"
+#define   VERSION_TEXT "1.40"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -119,6 +120,9 @@ input group "=== Language & account check ==="
 input ENUM_LANG InpLanguage       = LANG_EN; // Language of panel, alerts and windows / ภาษา
 input bool   InpAccountCheck    = true;  // Account check on start
 input bool   InpAccountPopup    = false; // Start-up check as a popup (needs an answer); false = Experts tab
+
+input group "=== PowerShell console ==="
+input bool   InpConsole         = true;  // Write status/events for tools\GS15_Console.ps1 and accept its commands
 
 input group "=== System test (demo accounts only) ==="
 input bool   InpTestMode        = false; // System test: open/close real demo trades now, without a signal
@@ -287,6 +291,8 @@ int OnInit()
       FileDelete(JournalName(), FILE_COMMON);
 
    EventSetTimer(1);
+   ConsoleLog("INFO", StringFormat("GoldScalperM15 v%s started on %s %s | account %s | %s", VERSION_TEXT, _Symbol,
+                                   EnumToString(InpTF), MaskedLogin(), StyleLine()));
    RefreshStatus();
    return INIT_SUCCEEDED;
 }
@@ -331,6 +337,7 @@ void OnTimer()
       accountCheckDone    = true;
       AccountCheck(InpAccountPopup);
    }
+   ReadConsoleCommand();
    TestStep();
    RefreshStatus();
 }
@@ -424,7 +431,7 @@ void OnTick()
    if(newsNow && InpNewsClosePos && CountPositions() > 0)
    {
       CloseAll();
-      Notify(L("ปิดออเดอร์เพราะเข้าช่วงข่าว: ", "Closed trades for a news window: ") + newsBlockInfo);
+      Notify(L("ปิดออเดอร์เพราะเข้าช่วงข่าว: ", "Closed trades for a news window: ") + newsBlockInfo, "NEWS");
    }
 
    TrackOpenTrade();
@@ -463,7 +470,9 @@ void OnTick()
       int score = ConfidenceScore(signal);
       if(score < InpMinConfidence)
       {
-         Print(StringFormat(L("ข้ามสัญญาณ %s: ความมั่นใจต่ำ %d/4 (ต้อง >= %d)", "Skipped %s signal: low confidence %d/4 (needs >= %d)"), signal > 0 ? "BUY" : "SELL", score, InpMinConfidence));
+         string skipMsg = StringFormat(L("ข้ามสัญญาณ %s: ความมั่นใจต่ำ %d/4 (ต้อง >= %d)", "Skipped %s signal: low confidence %d/4 (needs >= %d)"), signal > 0 ? "BUY" : "SELL", score, InpMinConfidence);
+         Print(skipMsg);
+         ConsoleLog("SKIP", skipMsg);
          return;
       }
    }
@@ -537,6 +546,16 @@ int GetSignal()
          double rLow  = ls[ArrayMinimum(ls)];
          orbHigh = rHigh;
          orbLow  = rLow;
+         static datetime rangeLogged = 0;   // console: report each day's range once
+         if(rangeLogged != day0)
+         {
+            rangeLogged = day0;
+            double atrD1[];
+            double c0 = iClose(_Symbol, PERIOD_D1, 1);
+            string vol = (GetBuf(hATRD1, atrD1) && c0 > 0) ? StringFormat(" | ATR D1 %.2f%%", atrD1[0] / c0 * 100.0) : "";
+            ConsoleLog("INFO", StringFormat(L("กรอบวันนี้: %s - %s%s", "Today's range: %s - %s%s"),
+                                            DoubleToString(rLow, _Digits), DoubleToString(rHigh, _Digits), vol));
+         }
          double prev  = iClose(_Symbol, InpTF, 2);
          if(c > rHigh && prev <= rHigh && TrendOK(1, c, trend[0]))  return 1;
          if(c < rLow  && prev >= rLow  && TrendOK(-1, c, trend[0])) return -1;
@@ -630,10 +649,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       WriteJournal(price, pl, exitCode, codes);
    tiValid = false;
 
+   string closeMsg = StringFormat("%s %s @ %s | P/L %.2f %s%s", how, side, DoubleToString(price, _Digits),
+                                  pl, AccountInfoString(ACCOUNT_CURRENCY),
+                                  pl < 0 ? L(" | แพ้เพราะ: ", " | Lost because: ") + thai : "");
    if(InpNotifyTrades)
-      Notify(StringFormat("%s %s @ %s | P/L %.2f %s%s", how, side, DoubleToString(price, _Digits),
-                          pl, AccountInfoString(ACCOUNT_CURRENCY),
-                          pl < 0 ? L(" | แพ้เพราะ: ", " | Lost because: ") + thai : ""));
+      Notify(closeMsg, pl < 0 ? "LOSS" : "WIN");
+   else
+      ConsoleLog(pl < 0 ? "LOSS" : "WIN", closeMsg);
 }
 
 //+------------------------------------------------------------------+
@@ -855,7 +877,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
                             "Skipped %s: min lot %.2f would lose %.2f %s at the SL (%.2f%% of equity %.2f), above the mode %d target of %.1f%% "
                             "[SL %.2f + slippage %d pts + commission] - needs equity of ~%.0f %s or a Micro/Cent account"),
                           side, lots, riskMoney, ccy, riskMoney / equity * 100.0, equity, (int)styleRt, RiskPctEff(),
-                          slDist, InpSlippagePts, riskMoney / (RiskPctEff() / 100.0), ccy));
+                          slDist, InpSlippagePts, riskMoney / (RiskPctEff() / 100.0), ccy), "SKIP");
       return;
    }
    // Daily loss budget: this trade's stop must fit in what is left of today's limit.
@@ -868,7 +890,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
       if(riskMoney > budget)
       {
          Notify(StringFormat(L("ข้าม %s: งบขาดทุนวันนี้เหลือ %.2f %s แต่ไม้นี้ถ้าโดน SL จะเสีย %.2f (เพดาน %.1f%%/วัน)", "Skipped %s: %.2f %s left in today's loss budget, but this trade would lose %.2f at the SL (limit %.1f%%/day)"),
-                             side, MathMax(0.0, budget), AccountInfoString(ACCOUNT_CURRENCY), riskMoney, InpMaxDailyLossPct));
+                             side, MathMax(0.0, budget), AccountInfoString(ACCOUNT_CURRENCY), riskMoney, InpMaxDailyLossPct), "SKIP");
          return;
       }
    }
@@ -877,6 +899,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    if(!AcquireOrderLock() || CountPositions() > 0)
    {
       Print("Duplicate order skipped: an order was just sent or a position of this EA is open");
+      ConsoleLog("SKIP", "Duplicate order skipped: an order was just sent or a position of this EA is open");
       return;
    }
    // Skip (and warn at most once a day) when free margin can't cover the order.
@@ -894,12 +917,15 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    if(ok)
    {
       CaptureEntry(isBuy ? 1 : -1, trade.ResultPrice() > 0 ? trade.ResultPrice() : price, sl, atr, lots);
+      string openMsg = StringFormat(L("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.2f%% ของ Equity)", "Opened %s %.2f lot @ %s | SL %s | TP %s | risk %.2f %s (%.2f%% of equity)"), side, lots,
+                                    DoubleToString(trade.ResultPrice() > 0 ? trade.ResultPrice() : price, _Digits),
+                                    DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
+                                    riskMoney, AccountInfoString(ACCOUNT_CURRENCY),
+                                    equity > 0 ? riskMoney / equity * 100.0 : 0);
       if(InpNotifyTrades)
-         Notify(StringFormat(L("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.1f%%)", "Opened %s %.2f lot @ %s | SL %s | TP %s | risk %.2f %s (%.1f%%)"), side, lots,
-                             DoubleToString(trade.ResultPrice() > 0 ? trade.ResultPrice() : price, _Digits),
-                             DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
-                             riskMoney, AccountInfoString(ACCOUNT_CURRENCY),
-                             balance > 0 ? riskMoney / balance * 100.0 : 0));
+         Notify(openMsg, "OPEN");
+      else
+         ConsoleLog("OPEN", openMsg);
    }
    else
       NotifyFailure(StringFormat(L("เปิด %s ไม่สำเร็จ: %d %s", "Open %s failed: %d %s"), side, trade.ResultRetcode(),
@@ -950,7 +976,7 @@ bool ClosePosition(ulong ticket, string why)
    {
       lastAlert = TimeCurrent();
       Notify(StringFormat(L("⚠ ปิดไม้ #%I64u (%s) ไม่สำเร็จ: %d %s - EA จะลองใหม่ทุก tick เช็กไม้ใน MT5 ด้วย", "⚠ Could not close #%I64u (%s): %d %s - the EA retries every tick; please check MT5"),
-                          ticket, why, trade.ResultRetcode(), trade.ResultRetcodeDescription()));
+                          ticket, why, trade.ResultRetcode(), trade.ResultRetcodeDescription()), "WARN");
    }
    return false;
 }
@@ -964,10 +990,152 @@ void NotifyFailure(string msg)
    if(dt.day_of_year == lastDay)
    {
       Print(msg);
+      ConsoleLog("WARN", msg);   // the console still shows every occurrence
       return;
    }
    lastDay = dt.day_of_year;
-   Notify(msg + L(" (แจ้งครั้งเดียวต่อวัน)", " (alerted once a day)"));
+   Notify(msg + L(" (แจ้งครั้งเดียวต่อวัน)", " (alerted once a day)"), "WARN");
+}
+
+//+------------------------------------------------------------------+
+//| PowerShell console (tools\GS15_Console.ps1) - live only.          |
+//| The EA writes Common\Files\GS15_<sym>_<magic>_status.txt every    |
+//| second and appends events to ..._log.txt; the console writes one |
+//| command into ..._cmd.txt (MODE1, MODE2, PAUSE, RESUME, CLOSEALL). |
+//+------------------------------------------------------------------+
+// Only the last 4 digits, so console screenshots can be shared safely.
+string MaskedLogin()
+{
+   string s = (string)AccountInfoInteger(ACCOUNT_LOGIN);
+   return StringLen(s) > 4 ? "..." + StringSubstr(s, StringLen(s) - 4) : s;
+}
+
+string ConsoleBase()
+{
+   return "GS15_" + _Symbol + "_" + (string)InpMagic;
+}
+
+void ConsoleLog(string kind, string msg)
+{
+   if(!InpConsole || MQLInfoInteger(MQL_TESTER))
+      return;
+   string name = ConsoleBase() + "_log.txt";
+   int f = FileOpen(name, FILE_READ | FILE_WRITE | FILE_TXT | FILE_UNICODE | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+   if(f == INVALID_HANDLE)
+      return;
+   if(FileSize(f) > 2 * 1024 * 1024)   // keep it small: start over past 2 MB
+   {
+      FileClose(f);
+      FileDelete(name, FILE_COMMON);
+      f = FileOpen(name, FILE_WRITE | FILE_TXT | FILE_UNICODE | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+      if(f == INVALID_HANDLE)
+         return;
+   }
+   FileSeek(f, 0, SEEK_END);
+   string line = msg;
+   StringReplace(line, "\n", " | ");
+   FileWriteString(f, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\t" + kind + "\t" + line + "\r\n");
+   FileClose(f);
+}
+
+void WriteConsoleStatus(int tradesToday, double profitToday)
+{
+   if(!InpConsole || MQLInfoInteger(MQL_TESTER))
+      return;
+   string ccy = AccountInfoString(ACCOUNT_CURRENCY);
+   string pos = L("ไม่มี", "none");
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(PositionGetTicket(i) == 0 || !IsMine())
+         continue;
+      pos = StringFormat("%s %.2f @ %s | SL %s | P/L %.2f %s",
+                         PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY ? "BUY" : "SELL",
+                         PositionGetDouble(POSITION_VOLUME),
+                         DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), _Digits),
+                         DoubleToString(PositionGetDouble(POSITION_SL), _Digits),
+                         PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP), ccy);
+   }
+   string reason = BlockReason(tradesToday, profitToday);
+   string status = reason != "" ? reason : (pos != L("ไม่มี", "none") ? L("กำลังถือออเดอร์", "In a trade")
+                                                                    : L("พร้อมเทรด - รอสัญญาณ", "Ready - waiting for a signal"));
+   double atr[];
+   string atrText = GetBuf(hATR, atr) ? DoubleToString(atr[0], 2) : "-";
+   double spread  = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool   demo    = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO;
+
+   int f = FileOpen(ConsoleBase() + "_status.txt", FILE_WRITE | FILE_TXT | FILE_UNICODE | FILE_COMMON | FILE_SHARE_READ);
+   if(f == INVALID_HANDLE)
+      return;
+   FileWriteString(f, "updated="  + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
+   FileWriteString(f, "version="  + MQLInfoString(MQL_PROGRAM_NAME) + " " + (string)VERSION_TEXT + "\r\n");
+   FileWriteString(f, "account="  + MaskedLogin() + (demo ? " (Demo)" : " (REAL)") + "\r\n");
+   FileWriteString(f, "symbol="   + _Symbol + "\r\n");
+   FileWriteString(f, StringFormat("equity=%.2f %s\r\n", AccountInfoDouble(ACCOUNT_EQUITY), ccy));
+   FileWriteString(f, StringFormat("balance=%.2f %s\r\n", AccountInfoDouble(ACCOUNT_BALANCE), ccy));
+   FileWriteString(f, "mode="     + (string)(int)styleRt + "\r\n");
+   FileWriteString(f, "modetext=" + StyleLine() + "\r\n");
+   FileWriteString(f, "paused="   + (paused ? "1" : "0") + "\r\n");
+   FileWriteString(f, "status="   + status + "\r\n");
+   FileWriteString(f, "position=" + pos + "\r\n");
+   FileWriteString(f, StringFormat("today=%d/%s | P/L %.2f %s\r\n", tradesToday,
+                                   MaxTradesEff() > 0 ? (string)MaxTradesEff() : "inf", profitToday, ccy));
+   FileWriteString(f, StringFormat("market=Spread %.2f / %.2f | ATR %s\r\n", spread, InpMaxSpread, atrText));
+   FileWriteString(f, "news="     + (newsNextInfo != "" ? newsNextInfo : "-") + "\r\n");
+   FileWriteString(f, "lang="     + (InpLanguage == LANG_TH ? "TH" : "EN") + "\r\n");
+   FileClose(f);
+}
+
+// One command per file; the file is deleted once read.
+void ReadConsoleCommand()
+{
+   if(!InpConsole || MQLInfoInteger(MQL_TESTER))
+      return;
+   string name = ConsoleBase() + "_cmd.txt";
+   if(!FileIsExist(name, FILE_COMMON))
+      return;
+   int f = FileOpen(name, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+   if(f == INVALID_HANDLE)
+      return;
+   string cmd = FileReadString(f);
+   FileClose(f);
+   FileDelete(name, FILE_COMMON);
+   StringTrimLeft(cmd);
+   StringTrimRight(cmd);
+   StringToUpper(cmd);
+
+   if(cmd == "MODE1" || cmd == "MODE2")
+   {
+      ENUM_TRADE_STYLE target = cmd == "MODE1" ? STYLE_ONE : STYLE_MULTI;
+      if(target == styleRt)
+         ConsoleLog("INFO", StringFormat(L("โหมด %d ใช้อยู่แล้ว", "Mode %d is already active"), (int)target));
+      else
+      {
+         styleRt = target;
+         SaveStyle();
+         Notify(StringFormat(L("เปลี่ยนเป็นโหมด %d แล้ว (จาก console): %s", "Switched to mode %d (from the console): %s"),
+                             (int)target, StyleLine()));
+      }
+   }
+   else if(cmd == "PAUSE" || cmd == "RESUME")
+   {
+      paused = cmd == "PAUSE";
+      GlobalVariableSet(gvPaused, paused ? 1 : 0);
+      Notify(paused ? L("หยุดเปิดไม้ใหม่ชั่วคราว (จาก console)", "Paused: no new trades (from the console)")
+                    : L("กลับมาเทรดตามปกติ (จาก console)", "Trading resumed (from the console)"));
+   }
+   else if(cmd == "CLOSEALL")
+   {
+      int n = CountPositions();
+      if(n == 0)
+         ConsoleLog("INFO", L("ไม่มีออเดอร์ของ EA นี้ให้ปิด", "No trades of this EA to close"));
+      else
+      {
+         CloseAll();
+         Notify(StringFormat(L("ปิดออเดอร์ทั้งหมด %d ไม้ (จาก console)", "Closed all %d trades (from the console)"), n), "WARN");
+      }
+   }
+   else if(cmd != "")
+      ConsoleLog("WARN", "Unknown console command: " + cmd);
 }
 
 //+------------------------------------------------------------------+
@@ -1068,20 +1236,23 @@ void RefreshStatus()
    {
       lossNotifiedDay = dt.day_of_year;
       Notify(StringFormat(L("ขาดทุนวันนี้ %.2f %s ถึงเพดาน %.1f%% แล้ว - หยุดเปิดไม้ใหม่ถึงพรุ่งนี้", "Today's loss %.2f %s reached the %.1f%% limit - no new trades until tomorrow"),
-                          profitToday, AccountInfoString(ACCOUNT_CURRENCY), InpMaxDailyLossPct));
+                          profitToday, AccountInfoString(ACCOUNT_CURRENCY), InpMaxDailyLossPct), "WARN");
    }
 
    if(showPanel)
       UpdatePanel(tradesToday, profitToday);
+   WriteConsoleStatus(tradesToday, profitToday);
 }
 
 // Single place every alert goes through (Telegram can be added here later).
-void Notify(string msg)
+// kind tags the line for the PowerShell console: INFO, OPEN, WIN, LOSS, SKIP, WARN, NEWS.
+void Notify(string msg, string kind = "INFO")
 {
    string full = "GoldScalper " + _Symbol + ": " + msg;
    Print(full);
    if(MQLInfoInteger(MQL_TESTER))
       return;
+   ConsoleLog(kind, msg);
    if(InpNotifyPush && !SendNotification(full))
       Print("Push notification failed - is your MetaQuotes ID set in Tools > Options > Notifications? (error ",
             GetLastError(), ")");
@@ -1132,7 +1303,7 @@ void CreatePanel()
    ObjectSetString(0, PFX + "btnClose", OBJPROP_TEXT, L("ปิดทุกไม้", "Close all"));
    MakeButton(PFX + "btnStyle1", InpPanelX + 10,  by + 32, 130, 24);
    MakeButton(PFX + "btnStyle2", InpPanelX + 150, by + 32, 130, 24);
-   ObjectSetString(0, PFX + "btnStyle1", OBJPROP_TEXT, L("โหมด 1: วันละ 1 ไม้", "Mode 1: 1 trade/day"));
+   ObjectSetString(0, PFX + "btnStyle1", OBJPROP_TEXT, L("โหมด 1: วันละ 1 ไม้", "Mode 1: one/day"));
    ObjectSetString(0, PFX + "btnStyle2", OBJPROP_TEXT, L("โหมด 2: หลายไม้", "Mode 2: multi"));
    MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 64, 270, 24);
    ObjectSetString(0, PFX + "btnAcct", OBJPROP_TEXT, L("ตรวจบัญชี / คำแนะนำ", "Account check / advice"));
@@ -1205,7 +1376,7 @@ void UpdatePanel(int tradesToday, double profitToday)
    if(StringLen(news) > 42)
       news = StringSubstr(news, 0, 40) + "..";
 
-   SetLine(0, "GoldScalper M15  v1.39", clrGold);
+   SetLine(0, "GoldScalper M15  v" + VERSION_TEXT, clrGold);
    SetLine(1, L("สถานะ: ", "Status: ") + status, statusClr);
    SetLine(2, L("ออเดอร์: ", "Trade: ") + posText, posPL < 0 ? clrTomato : clrWhiteSmoke);
    SetLine(3, StyleLine(), clrKhaki);
@@ -1302,13 +1473,13 @@ bool NewsBlackout()
    {
       Print(L("เข้าช่วงข่าว - งดเปิดไม้ใหม่: ", "News window - no new trades: "), newsBlockInfo);
       if(InpNotifyNews)
-         Notify(L("เข้าช่วงข่าว งดเปิดไม้ใหม่: ", "News window started - no new trades: ") + newsBlockInfo);
+         Notify(L("เข้าช่วงข่าว งดเปิดไม้ใหม่: ", "News window started - no new trades: ") + newsBlockInfo, "NEWS");
    }
    if(!newsBlocked && wasBlocked)
    {
       Print(L("พ้นช่วงข่าว - กลับมาเทรดได้", "News window over - trading allowed"));
       if(InpNotifyNews)
-         Notify(L("พ้นช่วงข่าวแล้ว กลับมาเทรดได้", "News window over - trading allowed again"));
+         Notify(L("พ้นช่วงข่าวแล้ว กลับมาเทรดได้", "News window over - trading allowed again"), "NEWS");
    }
    return newsBlocked;
 }

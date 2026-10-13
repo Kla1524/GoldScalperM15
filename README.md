@@ -1,14 +1,19 @@
 # GoldScalperM15
 
-![Version](https://img.shields.io/badge/version-1.39-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.40-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
 
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
+with strict risk-based position sizing, a volatility filter, news filter, loss diagnosis, an on-chart control panel, a PowerShell console and mobile push notifications.
 
-**Current version: v1.39** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+**Current version: v1.40** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 
 ![On-chart control panel on a GOLD M15 chart](docs/images/panel.png)
+
 *On-chart panel (English by default, Thai with `InpLanguage`): status, open trade, trade mode, today's trades and P/L, spread/ATR, next news event, and the Pause / Close all / Mode 1 / Mode 2 / Account check buttons.*
-with a volatility filter, per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
+
+![PowerShell console](docs/images/console.png)
+
+*PowerShell console (`GS15_Console.bat`): live status, colour event log (newest first) and keys to switch mode, pause or close all.*
 
 > ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -86,6 +91,7 @@ Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable 
 | 📰 **News filter** | MT5 economic calendar — pauses entries around high-impact USD events (live trading only) |
 | 🖥️ **Control panel** | Live status (incl. "low volatility"), position P/L, today's stats, spread/ATR, next news · **Pause** / **Close all** / **Mode 1 / Mode 2** buttons |
 | 🧭 **Account check** | Start-up check in the Experts tab, or a popup from the panel button (TH/EN), that analyses balance, leverage, contract size and the money one stop-loss would cost, then recommends and lets you choose (keep, switch to 1% risk lots, pause, remove) |
+| 🖥️ **PowerShell console** | Double-click `GS15_Console.bat`: live status, colour event log (opened, won, lost, skipped with the reason, news, warnings; newest first), and keys to switch mode, pause/resume or close all. The EA keeps running whether the console is open or not |
 | 📱 **Notifications** | MT5 mobile push on open/close, news windows, daily-loss stop, skipped trades (max once a day) |
 
 ## 🚀 Installation
@@ -98,7 +104,7 @@ Attach the EA to a **GOLD/XAUUSD** chart, enable **Allow Algo Trading**. The def
 
 > Times are **broker server time**. The defaults were validated on XM Global (GMT+2/+3). Other brokers may need the hours adjusted.
 
-📖 Full guide: [USER_GUIDE.md](USER_GUIDE.md) · Thai: [คู่มือ_GoldScalperM15.md](คู่มือ_GoldScalperM15.md) · What changed in each version: [CHANGELOG.md](CHANGELOG.md)
+📖 Full guide: [USER_GUIDE.md](USER_GUIDE.md) · Thai: [USER_GUIDE_TH.md](USER_GUIDE_TH.md) · What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
 ## 🧪 Reproducing the backtests
 
@@ -117,6 +123,7 @@ Paths at the top of the script point to the author's MT5 installation; adjust th
 ```
 GoldScalperM15.mq5          EA source code (MQL5)
 install_to_MT5.bat          One-click compile + install helper (Windows)
+GS15_Console.bat            Opens the PowerShell console (tools/GS15_Console.ps1)
 presets/                    Validated default preset
 tools/backtest.ps1          Backtest / optimization automation
 USER_GUIDE.md               User guide (English)
@@ -124,7 +131,7 @@ CHANGELOG.md                What changed in each version
 LICENSE                     MIT license
 DISCLAIMER.md               Education-only / not investment advice (EN + TH)
 docs/images/                Screenshots
-คู่มือ_GoldScalperM15.md      User guide (Thai)
+USER_GUIDE_TH.md            User guide (Thai)
 ```
 
 ## 📄 License

@@ -2,6 +2,14 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.40 — PowerShell console
+- **`GS15_Console.bat`** opens a PowerShell window with:
+  - the EA's live status: account, equity, mode, status, open trade, today's trades and P/L, spread/ATR, next news;
+  - a colour event log, newest first. Opened (cyan), won (green), lost with the reason (red), skipped with the money at risk (yellow), news, warnings and the day's range.
+- Keys: `1` / `2` switch mode (both explained first), `P` pause / resume, `C` close all (type CLOSE), `L` full log, `Q` quit.
+- How it works: the EA writes `GS15_<symbol>_<magic>_status.txt` every second and appends to `..._log.txt` (MT5 common Files folder). It reads one command from `..._cmd.txt`. There are no DLL imports. `InpConsole = false` turns it off. Live and demo only, not in the tester.
+- The installer (`install_to_MT5.bat`) is now in English. Shorter panel button label so it fits.
+
 ## v1.39 — Strict risk control, safety checks, English by default
 - **Strict risk** (`InpStrictRisk`, on by default): the real risk of a trade must not exceed the current mode's % (1% in mode 1, 0.5% in mode 2).
   - Real risk = SL distance from the actual entry price + slippage allowance (`InpSlippagePts`) + commission (`InpCommissionLot`), measured against **equity**.
