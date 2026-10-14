@@ -33,7 +33,8 @@ function Log([string]$m) { $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date),
 
 $runs = @(
     @{ Name = 'R0_smc_smoke_1min_2026Q3';     From = '2026.08.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
-    @{ Name = 'R1_regression_mode1_1min_3k';  From = '2018.01.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{} },
+    @{ Name = 'R1_regression_mode1_1min_3k';  From = '2018.01.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{ InpNewsInTester = 'false' } },
+    @{ Name = 'R1n_mode1_news_1min_3k';       From = '2018.01.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{} },
     @{ Name = 'R2_smc_realticks_3k';          From = '2024.10.14'; To = '2026.10.12'; Model = 4; Deposit = 3000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
     @{ Name = 'R3_orb_0.5pct_realticks_3k';   From = '2024.10.14'; To = '2026.10.12'; Model = 4; Deposit = 3000;  Delay = 0;  Inputs = @{ InpRiskPct = 0.5 } },
     @{ Name = 'R4_smc_realticks_1k';          From = '2024.10.14'; To = '2026.10.12'; Model = 4; Deposit = 1000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
