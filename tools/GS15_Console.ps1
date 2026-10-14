@@ -55,6 +55,17 @@ $script:Theme = @{
 # Layout in characters (2 columns ~ 16 px padding). The panel width follows the window, within limits.
 $script:Layout = @{ MinWidth = 52; MaxWidth = 68; LabelWidth = 16; MinHeight = 22 }
 
+# Headline feeds (RSS the publishers offer for this purpose). Information for you only:
+# the EA never trades on headlines. Add or remove feeds here.
+$script:Feeds = @(
+    @{ Src = 'BBC';  Url = 'https://feeds.bbci.co.uk/news/world/rss.xml' },
+    @{ Src = 'BBC';  Url = 'https://feeds.bbci.co.uk/news/business/rss.xml' },
+    @{ Src = 'CNBC'; Url = 'https://www.cnbc.com/id/100727362/device/rss/rss.html' },
+    @{ Src = 'CNBC'; Url = 'https://www.cnbc.com/id/15839069/device/rss/rss.html' },
+    @{ Src = 'IQ';   Url = 'https://www.infoquest.co.th/feed' }
+)
+$script:HeadlineMinutes = 10
+
 #==================================================================
 # Terminal setup
 #==================================================================
@@ -175,6 +186,48 @@ function Update-Pending {
     } elseif ($age -gt 15) {
         $script:Feedback = @{ Text = "The EA read '$($p.Label)' but sent no reply - check the log (O)"; Tone = 'Warning' }
         $script:Pending = $null
+    }
+}
+
+#==================================================================
+# Headlines: fetched in a background job so the panel never waits on the network
+#==================================================================
+$script:Headlines   = @()
+$script:HeadJob     = $null
+$script:HeadNext    = [datetime]::MinValue
+$script:HeadStatus  = 'loading...'
+$script:ShowHeads   = $true
+
+function Update-Headlines {
+    if ($script:HeadJob -and $script:HeadJob.State -ne 'Running') {
+        $items = @(Receive-Job $script:HeadJob -ErrorAction SilentlyContinue)
+        Remove-Job $script:HeadJob -Force -ErrorAction SilentlyContinue
+        $script:HeadJob = $null
+        $ok = @($items | Where-Object { $_.Title })
+        if ($ok.Count -gt 0) {
+            $seen = @{}
+            $script:Headlines = @($ok | Sort-Object Time -Descending | Where-Object { if ($seen[$_.Title]) { $false } else { $seen[$_.Title] = 1; $true } } | Select-Object -First 40)
+            $script:HeadStatus = 'updated {0:HH:mm}' -f (Get-Date)
+        } else { $script:HeadStatus = 'not available (no connection?)' }
+    }
+    if (-not $script:HeadJob -and (Get-Date) -ge $script:HeadNext) {
+        $script:HeadNext = (Get-Date).AddMinutes($script:HeadlineMinutes)
+        $script:HeadJob = Start-Job -ArgumentList (, $script:Feeds) -ScriptBlock {
+            param($feeds)
+            [Net.ServicePointManager]::SecurityProtocol = 'Tls12'
+            foreach ($f in $feeds) {
+                try {
+                    $r = Invoke-WebRequest -Uri $f.Url -UseBasicParsing -TimeoutSec 15 -UserAgent 'GoldScalperM15-console'
+                    [xml]$x = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
+                    foreach ($it in @($x.rss.channel.item | Select-Object -First 12)) {
+                        $title = if ($it.title -is [string]) { $it.title } else { $it.title.InnerText }
+                        $when = [datetime]::MinValue
+                        try { $when = ([DateTimeOffset]::Parse([string]$it.pubDate, [Globalization.CultureInfo]::InvariantCulture)).LocalDateTime } catch {}
+                        [pscustomobject]@{ Src = $f.Src; Time = $when; Title = ($title -replace '\s+', ' ').Trim() }
+                    }
+                } catch {}
+            }
+        }
     }
 }
 
@@ -430,7 +483,7 @@ function Render-Main($st) {
 
     # Event journal, newest first, in the remaining height.
     $room = $script:WinH - $script:Rows.Count - 4
-    if (-not $script:LongLog) { $room = [Math]::Min($room, 8) }
+    if (-not $script:LongLog) { $room = [Math]::Min($room, $(if ($script:ShowHeads) { 6 } else { 8 })) }
     if ($room -ge 2) {
         Add-Edge 'top' 'EVENTS  newest first'
         $tail = @(if ($script:LogCache.Count -gt $room) { $script:LogCache[($script:LogCache.Count - $room)..($script:LogCache.Count - 1)] } else { $script:LogCache })
@@ -446,9 +499,24 @@ function Render-Main($st) {
         if ($tail.Count -eq 0) { Add-Row @(@('No events yet.', 'Muted', 'PanelBg')) }
         Add-Edge 'bot'
     }
+    if ($script:ShowHeads) {
+        $hroom = $script:WinH - $script:Rows.Count - 4
+        if ($hroom -ge 2) {
+            Add-Edge 'top' ('HEADLINES  info only, not used for trading  ' + [char]0x00B7 + ' ' + $script:HeadStatus)
+            $n = 0
+            foreach ($h in $script:Headlines) {
+                if ($n -ge $hroom) { break }
+                $t = if ($h.Time -gt [datetime]::MinValue) { $h.Time.ToString('HH:mm') } else { '--:--' }
+                Add-Row @(@("$t  ", 'Muted', 'PanelBg'), @(((Fit $h.Src 4) + ' '), 'Accent', 'PanelBg', $true), @($h.Title, 'Text', 'PanelBg'))
+                $n++
+            }
+            if ($n -eq 0) { Add-Row @(@('No headlines yet.', 'Muted', 'PanelBg')) }
+            Add-Edge 'bot'
+        }
+    }
     $logWord = if ($script:LongLog) { 'short' } else { 'long' }
     # The action keys are on the buttons above; the footer only lists the view keys.
-    [void]$script:Rows.Add((Sgr 'Muted' 'ScreenBg') + '  ' + (Fit "L $logWord journal   O full log in Notepad   Q quit" ($script:W - 2)))
+    [void]$script:Rows.Add((Sgr 'Muted' 'ScreenBg') + '  ' + (Fit "L $logWord journal   H headlines   O full log   Q quit" ($script:W - 2)))
 }
 
 function Render-Account {
@@ -562,6 +630,7 @@ function Invoke-Key([string]$key, $st) {
             if ((Read-Answer -Line) -ceq 'CLOSE') { Send-Command 'CLOSEALL' 'close all' } else { $script:Feedback = @{ Text = 'Close all cancelled'; Tone = 'Muted' } }
         }
         'L' { $script:LongLog = -not $script:LongLog }
+        'H' { $script:ShowHeads = -not $script:ShowHeads }
         'O' { $f = "$($script:Base)_log.txt"; if (Test-Path $f) { Start-Process notepad.exe $f } }
     }
 }
@@ -581,7 +650,9 @@ if ($Snapshot) {
 }
 
 $oldTitle = ''
+$pidFile = Join-Path $Dir 'GS15_console_pid.txt'   # lets the launcher (chart button) find and close this window
 try {
+    try { [IO.File]::WriteAllText($pidFile, "$PID", [Text.Encoding]::ASCII) } catch {}
     try { $oldTitle = $Host.UI.RawUI.WindowTitle; $Host.UI.RawUI.WindowTitle = 'GoldScalper console' } catch {}
     try { [Console]::CursorVisible = $false } catch {}
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -603,6 +674,7 @@ try {
             if (-not $st.ContainsKey('state')) { $st['state'] = $st['status']; $st['reason'] = 'Update the EA to v1.41+ for the full view' }
             Read-Log
             Update-Pending
+            Update-Headlines
             if ($script:View -eq 'account') { Render-Account } else { Render-Main $st }
         } else { Render-Waiting }
         Show-Frame
@@ -620,6 +692,8 @@ try {
         if ($quit) { break }
     }
 } finally {
+    if ($script:HeadJob) { Remove-Job $script:HeadJob -Force -ErrorAction SilentlyContinue }
+    try { if ((Get-Content $pidFile -ErrorAction SilentlyContinue) -eq "$PID") { Remove-Item $pidFile -ErrorAction SilentlyContinue } } catch {}
     if ($script:Ansi) { [Console]::Write("$($script:E)[0m$($script:E)[?1049l") }
     try { [Console]::CursorVisible = $true; $Host.UI.RawUI.WindowTitle = $oldTitle } catch {}
 }

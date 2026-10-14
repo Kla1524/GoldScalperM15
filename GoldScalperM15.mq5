@@ -139,6 +139,9 @@ input bool   InpNewsHighOnly     = true;   // true = high impact only, false = m
 input int    InpNewsMinsBefore   = 30;     // No new trades before the event (minutes)
 input int    InpNewsMinsAfter    = 30;     // No new trades after the event (minutes)
 input bool   InpNewsClosePos     = false;  // Close open trades when a news window starts
+input bool   InpNewsInTester     = true;   // Strategy Tester: apply the filter from the exported news file
+input string InpNewsFile         = "";     // News history file in Common\Files ("" = GS15_news_<currencies>.csv)
+input bool   InpNewsServerUSDST  = true;   // Tester: server time = GMT+2, GMT+3 during US daylight saving (XM and most brokers)
 
 input group "=== Notifications ==="
 input bool   InpNotifyPush   = true;   // Push notifications to the MT5 mobile app
@@ -158,6 +161,7 @@ input bool   InpAccountPopup    = false; // Start-up check as a popup (needs an 
 
 input group "=== PowerShell console ==="
 input bool   InpConsole         = true;  // Write status/events for tools\GS15_Console.ps1 and accept its commands
+input bool   InpConsoleButton   = true;  // "Console" button on the chart: opens / closes the console (needs the launcher)
 
 input group "=== System test (demo accounts only) ==="
 input bool   InpTestMode        = false; // System test: open/close real demo trades now, without a signal
@@ -206,6 +210,9 @@ double    orbHigh       = 0, orbLow = 0;   // last ORB range seen by GetSignal()
 datetime  cooldownUntil = 0;
 datetime lastBarTime     = 0;
 datetime newsLastCheck   = 0;
+datetime newsFileT[];                    // tester: event times (server time) from the exported file
+bool     newsFileLoaded  = false;
+bool     newsExportPending = false;
 bool     newsBlocked     = false;
 string   newsBlockInfo   = "";
 string   newsNextInfo    = "";
@@ -359,6 +366,8 @@ int OnInit()
    }
 
    showPanel = InpShowPanel && (!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_VISUAL_MODE));
+   if(InpConsole && InpConsoleButton && !MQLInfoInteger(MQL_TESTER))
+      CreateConsoleButton();
    if(showPanel)
       CreatePanel();
 
@@ -366,6 +375,7 @@ int OnInit()
    if(InpJournal && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
       FileDelete(JournalName(), FILE_COMMON);
 
+   newsExportPending = true;   // refresh the news history file shortly after start (live only)
    EventSetTimer(1);
    ConsoleLog("INFO", StringFormat("GoldScalperM15 v%s started on %s %s | account %s | %s", VERSION_TEXT, _Symbol,
                                    EnumToString(InpTF), MaskedLogin(), StyleLine()));
@@ -412,6 +422,7 @@ double OnTester()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   UpdateConsoleButton();
    if(accountCheckPending)
    {
       accountCheckPending = false;
@@ -419,6 +430,7 @@ void OnTimer()
       AccountCheck(InpAccountPopup);
    }
    ReadConsoleCommand();
+   NewsExportIfStale();
    TestStep();
    QuickTestStep();
    UpdatePeak();
@@ -927,6 +939,12 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
    if(id != CHARTEVENT_OBJECT_CLICK)
       return;
 
+   if(sparam == PFX + "btnConsole")
+   {
+      ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+      ConsoleButtonClick();
+      return;
+   }
    if(sparam == PFX + "btnPause")
    {
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
@@ -1329,6 +1347,8 @@ void ReadConsoleCommand()
       AccountCheck(false);
       ConsoleLog("INFO", L("ตรวจบัญชีแล้ว (ดูผลด้วยปุ่ม A)", "Account check done (press A to view)"));
    }
+   else if(cmd == "NEWSEXPORT")
+      NewsExportHistory();
    else if(cmd == "TEST")
    {
       if(QuickTestAllowed(true))
@@ -1626,17 +1646,10 @@ bool NewsBlackout()
    if(!InpNewsFilter)
       return false;
 
-   // The calendar is not available in the Strategy Tester.
+   // The calendar is not available in the Strategy Tester: use the history exported from the
+   // live terminal (console command NEWSEXPORT), same events and times as live trading.
    if(MQLInfoInteger(MQL_TESTER))
-   {
-      static bool warned = false;
-      if(!warned)
-      {
-         Print("The news filter cannot run in the Strategy Tester (no calendar access) - news filter skipped");
-         warned = true;
-      }
-      return false;
-   }
+      return NewsBlackoutFromFile();
 
    datetime now = TimeTradeServer();
    if(now - newsLastCheck < 60)
@@ -1703,6 +1716,250 @@ bool NewsBlackout()
          Notify(L("พ้นช่วงข่าวแล้ว กลับมาเทรดได้", "News window over - trading allowed again"), "NEWS");
    }
    return newsBlocked;
+}
+
+
+//+------------------------------------------------------------------+
+//| News history file: export (live) and use in the Strategy Tester  |
+//+------------------------------------------------------------------+
+string NewsFileName()
+{
+   if(InpNewsFile != "")
+      return InpNewsFile;
+   string n = "GS15_news_" + InpNewsCurrencies + ".csv";
+   StringReplace(n, ",", "_");
+   StringReplace(n, " ", "");
+   return n;
+}
+
+// Writes every moderate/high event of InpNewsCurrencies from Dec 2017 to 3 weeks ahead, with
+// times in this broker's server time (the calendar converts them), to Common\Files.
+void NewsExportHistory()
+{
+   if(MQLInfoInteger(MQL_TESTER))
+      return;
+   datetime from = D'2017.12.01', to = TimeTradeServer() + 21 * 86400;
+   string cur[];
+   int nc = StringSplit(InpNewsCurrencies, ',', cur);
+   string tmp = NewsFileName() + ".tmp";
+   int f = FileOpen(tmp, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(f == INVALID_HANDLE)
+   {
+      ConsoleLog("WARN", "News export: cannot write " + tmp);
+      return;
+   }
+   FileWriteString(f, "time_gmt,currency,importance,event\n");
+   long offset = (long)(TimeTradeServer() - TimeGMT());   // the calendar applies today's offset to every date
+   offset = (long)MathRound(offset / 1800.0) * 1800;
+   int rows = 0, fails = 0;
+   datetime last = 0;
+   for(int c = 0; c < nc; c++)
+   {
+      StringTrimLeft(cur[c]); StringTrimRight(cur[c]); StringToUpper(cur[c]);
+      if(cur[c] == "") continue;
+      for(datetime a = from; a < to; a += 92 * 86400)          // quarter by quarter
+      {
+         datetime b = (datetime)MathMin((long)a + 92 * 86400, (long)to);
+         MqlCalendarValue v[];
+         if(!CalendarValueHistory(v, a, b, NULL, cur[c])) { fails++; continue; }
+         for(int i = 0; i < ArraySize(v); i++)
+         {
+            MqlCalendarEvent ev;
+            if(!CalendarEventById(v[i].event_id, ev) || ev.importance < CALENDAR_IMPORTANCE_MODERATE)
+               continue;
+            string nm = ev.name;
+            StringReplace(nm, ",", " ");
+            FileWriteString(f, StringFormat("%s,%s,%d,%s\n", TimeToString((datetime)((long)v[i].time - offset), TIME_DATE | TIME_MINUTES), cur[c], (int)ev.importance, nm));
+            rows++;
+            if(v[i].time > last) last = v[i].time;
+         }
+      }
+   }
+   FileClose(f);
+   if(rows == 0)
+   {
+      FileDelete(tmp, FILE_COMMON);
+      ConsoleLog("WARN", "News export: the calendar returned no events (not synchronised yet?) - try again later");
+      return;
+   }
+   FileDelete(NewsFileName(), FILE_COMMON);
+   FileMove(tmp, FILE_COMMON, NewsFileName(), FILE_COMMON | FILE_REWRITE);
+   ConsoleLog("INFO", StringFormat("News history exported: %d events (%s) to Common\\Files\\%s in GMT, up to %s server time%s", rows, InpNewsCurrencies,
+                                   NewsFileName(), TimeToString(last, TIME_DATE | TIME_MINUTES), fails > 0 ? StringFormat(" (%d requests failed)", fails) : ""));
+}
+
+// Live: refresh the file once a day in the background (first timer tick, then daily).
+void NewsExportIfStale()
+{
+   if(MQLInfoInteger(MQL_TESTER) || !InpNewsFilter)
+      return;
+   static datetime lastTry = 0;
+   if(!newsExportPending && TimeCurrent() - lastTry < 86400)
+      return;
+   lastTry = TimeCurrent();
+   newsExportPending = false;
+   if(FileIsExist(NewsFileName(), FILE_COMMON) &&
+      TimeLocal() - (datetime)FileGetInteger(NewsFileName(), FILE_MODIFY_DATE, true) < 86400)
+      return;
+   NewsExportHistory();
+}
+
+// US daylight saving: from the second Sunday of March 07:00 GMT to the first Sunday of November 06:00 GMT.
+bool UsDstAt(datetime gmt)
+{
+   MqlDateTime d;
+   TimeToStruct(gmt, d);
+   MqlDateTime m;
+   ZeroMemory(m); m.year = d.year; m.mon = 3; m.day = 1;
+   datetime mar1 = StructToTime(m);
+   TimeToStruct(mar1, m);
+   int firstSunMar = 1 + (7 - m.day_of_week) % 7;
+   datetime start = mar1 + (firstSunMar + 7 - 1) * 86400 + 7 * 3600;
+   ZeroMemory(m); m.year = d.year; m.mon = 11; m.day = 1;
+   datetime nov1 = StructToTime(m);
+   TimeToStruct(nov1, m);
+   int firstSunNov = 1 + (7 - m.day_of_week) % 7;
+   datetime end = nov1 + (firstSunNov - 1) * 86400 + 6 * 3600;
+   return gmt >= start && gmt < end;
+}
+
+datetime NewsGmtToServer(datetime gmt)
+{
+   if(InpNewsServerUSDST)
+      return gmt + (UsDstAt(gmt) ? 3 : 2) * 3600;
+   return gmt + (TimeTradeServer() - TimeGMT());   // fixed offset
+}
+
+// Tester: load the file once and block entries inside the same windows as live trading.
+bool NewsBlackoutFromFile()
+{
+   if(!InpNewsInTester)
+   {
+      static bool warned = false;
+      if(!warned) { Print("News filter skipped in the tester (InpNewsInTester = false)"); warned = true; }
+      return false;
+   }
+   if(!newsFileLoaded)
+   {
+      newsFileLoaded = true;
+      ArrayResize(newsFileT, 0);
+      int f = FileOpen(NewsFileName(), FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+      if(f == INVALID_HANDLE)
+      {
+         Print("News file Common\\Files\\", NewsFileName(), " not found - news filter skipped in this test (run the console command NEWSEXPORT on a live chart)");
+         return false;
+      }
+      int minImp = InpNewsHighOnly ? 3 : 2, n = 0;
+      bool gmt = StringFind(FileReadString(f), "time_gmt") == 0;   // header (older files: server time)
+      while(!FileIsEnding(f))
+      {
+         string parts[];
+         if(StringSplit(FileReadString(f), ',', parts) < 4) continue;
+         if((int)StringToInteger(parts[2]) < minImp) continue;
+         if(StringFind("," + InpNewsCurrencies + ",", "," + parts[1] + ",") < 0) continue;
+         ArrayResize(newsFileT, n + 1, 4096);
+         datetime t = StringToTime(parts[0]);
+         newsFileT[n++] = gmt ? NewsGmtToServer(t) : t;
+      }
+      FileClose(f);
+      ArraySort(newsFileT);
+      PrintFormat("News filter in the tester: %d events from %s (%s to %s)", n, NewsFileName(),
+                  n > 0 ? TimeToString(newsFileT[0], TIME_DATE) : "-", n > 0 ? TimeToString(newsFileT[n - 1], TIME_DATE) : "-");
+   }
+   int n = ArraySize(newsFileT);
+   if(n == 0)
+      return false;
+   datetime now = TimeCurrent();
+   // first event at or after now - InpNewsMinsAfter (binary search)
+   datetime lo = now - InpNewsMinsAfter * 60;
+   int a = 0, b = n;
+   while(a < b) { int mid = (a + b) / 2; if(newsFileT[mid] < lo) a = mid + 1; else b = mid; }
+   newsBlocked = a < n && newsFileT[a] <= now + InpNewsMinsBefore * 60;
+   newsBlockInfo = newsBlocked ? TimeToString(newsFileT[a], TIME_MINUTES) + " " + InpNewsCurrencies + " (file)" : "";
+   return newsBlocked;
+}
+
+
+//+------------------------------------------------------------------+
+//| "Console" chart button: asks tools\GS15_ConsoleLauncher.ps1 to    |
+//| open / close the console through a file (no DLL imports).        |
+//+------------------------------------------------------------------+
+#define CONSOLE_REQUEST "GS15_console_request.txt"
+#define CONSOLE_STATE   "GS15_console_state.txt"
+
+void CreateConsoleButton()
+{
+   string b = PFX + "btnConsole";
+   ObjectCreate(0, b, OBJ_BUTTON, 0, 0, 0);
+   ObjectSetInteger(0, b, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, b, OBJPROP_XDISTANCE, 128);
+   ObjectSetInteger(0, b, OBJPROP_YDISTANCE, 26);
+   ObjectSetInteger(0, b, OBJPROP_XSIZE, 118);
+   ObjectSetInteger(0, b, OBJPROP_YSIZE, 26);
+   ObjectSetString(0, b, OBJPROP_FONT, "Segoe UI");
+   ObjectSetInteger(0, b, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, b, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, b, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, b, OBJPROP_ZORDER, 10);
+   ObjectSetString(0, b, OBJPROP_TOOLTIP, L("เปิด/ปิดหน้าต่าง PowerShell console", "Open / close the PowerShell console"));
+   UpdateConsoleButton();
+}
+
+// Launcher heartbeat and console state ("" when the launcher is not running).
+string ConsoleState()
+{
+   int f = FileOpen(CONSOLE_STATE, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+   if(f == INVALID_HANDLE)
+      return "";
+   string beat = "", con = "";
+   while(!FileIsEnding(f))
+   {
+      string l = FileReadString(f);
+      if(StringFind(l, "launcher=") == 0) beat = StringSubstr(l, 9);
+      if(StringFind(l, "console=") == 0)  con  = StringSubstr(l, 8);
+   }
+   FileClose(f);
+   if(beat == "" || beat == "stopped")
+      return "";
+   // The heartbeat is written in local PC time every second.
+   if(MathAbs((double)(TimeLocal() - StringToTime(beat))) > 10)
+      return "";
+   return con;
+}
+
+void UpdateConsoleButton()
+{
+   string b = PFX + "btnConsole";
+   if(ObjectFind(0, b) < 0)
+      return;
+   string st = ConsoleState();
+   string text = st == "open" ? L("■  ปิด Console", "■  Close console") : st == "closed" ? L("▶  เปิด Console", "▶  Open console") : L("Console (ติดตั้ง)", "Console (set up)");
+   if(ObjectGetString(0, b, OBJPROP_TEXT) == text)
+      return;   // only redraw when something changed
+   ObjectSetString(0, b, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, b, OBJPROP_BGCOLOR, st == "open" ? C'37,99,235' : C'19,33,58');
+   ObjectSetInteger(0, b, OBJPROP_COLOR, st == "open" ? clrWhite : C'121,173,255');
+   ObjectSetInteger(0, b, OBJPROP_BORDER_COLOR, C'38,55,80');
+   ChartRedraw();
+}
+
+void ConsoleButtonClick()
+{
+   if(ConsoleState() == "")
+   {
+      string msg = L("ยังไม่ได้เปิดตัวช่วยเปิด console - รัน tools\\Install-ConsoleLauncher.ps1 หนึ่งครั้ง (หรือดับเบิลคลิกทางลัด GoldScalper Console บน Desktop)",
+                     "The console launcher is not running - run tools\\Install-ConsoleLauncher.ps1 once (or use the GoldScalper Console shortcut on the Desktop)");
+      Print(msg);
+      ConsoleLog("WARN", msg);
+      MessageBox(msg, "GoldScalperM15", MB_OK | MB_ICONINFORMATION);
+      return;
+   }
+   int f = FileOpen(CONSOLE_REQUEST, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(f != INVALID_HANDLE)
+   {
+      FileWriteString(f, "TOGGLE");
+      FileClose(f);
+   }
 }
 
 //+------------------------------------------------------------------+
