@@ -9,8 +9,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.41"
-#define   VERSION_TEXT "1.41"
+#property version   "1.42"
+#define   VERSION_TEXT "1.42"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -132,6 +132,8 @@ input group "=== System test (demo accounts only) ==="
 input bool   InpTestMode        = false; // System test: open/close real demo trades now, without a signal
 input int    InpTestTrades      = 3;     // Number of test trades (alternating BUY / SELL)
 input int    InpTestHoldMin     = 2;     // Minutes to hold each test trade
+input int    InpQuickTestHoldMs = 100;   // Test button: milliseconds to hold the test trade before closing it
+input bool   InpQuickTestReal   = false; // Allow the Test button on a REAL account (costs the spread)
 
 input group "=== Loss diagnosis ==="
 input int    InpLossCooldownMin = 20;   // Pause after a losing trade (minutes, 0 = off)
@@ -189,6 +191,12 @@ string   gvStyle         = "";
 string   gvStyleIn       = "";          // the input value when the mode was chosen
 string   gvCooldown      = "";          // end of the loss cooldown, kept across restarts
 int      testDone        = 0;           // system-test trades opened so far
+CTrade   qtTrade;                       // Test button: own magic, so it never counts as a trade of the day
+ulong    qtTicket        = 0;
+ulong    qtOpenedMs      = 0;
+ulong    qtSendMs        = 0;
+string   qtSource        = "";
+double   qtOpenPx        = 0;
 bool     testFinished    = false;
 int      lossNotifiedDay = -1;
 bool     showPanel       = false;
@@ -243,6 +251,9 @@ int OnInit()
    trade.SetExpertMagicNumber(InpMagic);
    trade.SetDeviationInPoints(30);
    trade.SetTypeFillingBySymbol(_Symbol);
+   qtTrade.SetExpertMagicNumber(QuickTestMagic());
+   qtTrade.SetDeviationInPoints(50);
+   qtTrade.SetTypeFillingBySymbol(_Symbol);
 
    // Pause state survives timeframe changes and terminal restarts.
    gvPaused = PFX + "paused_" + _Symbol + "_" + (string)InpMagic;
@@ -365,6 +376,7 @@ void OnTimer()
    }
    ReadConsoleCommand();
    TestStep();
+   QuickTestStep();
    UpdatePeak();
    RefreshStatus();
 }
@@ -643,6 +655,20 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       return;
    if(!HistoryDealSelect(trans.deal))
       return;
+   // Deposit / withdrawal: shift the equity peak by the same amount, otherwise a withdrawal
+   // would look like a drawdown and halt the EA (and a deposit would hide a real one).
+   if(HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BALANCE)
+   {
+      double amount = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+      if(equityPeak > 0)
+      {
+         equityPeak = MathMax(0.0, equityPeak + amount);
+         if(!MQLInfoInteger(MQL_TESTER))
+            GlobalVariableSet(gvPeak, equityPeak);
+      }
+      ConsoleLog("INFO", StringFormat(L("ฝาก/ถอน %.2f - ปรับจุดสูงสุดของ Equity เป็น %.2f", "Deposit/withdrawal %.2f - equity peak adjusted to %.2f"), amount, equityPeak));
+      return;
+   }
    if((ulong)HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != InpMagic ||
       HistoryDealGetString(trans.deal, DEAL_SYMBOL) != _Symbol)
       return;
@@ -857,6 +883,16 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
          Notify(StringFormat(L("ปิดออเดอร์ทั้งหมด %d ไม้ (กดปุ่มบนแผง)", "Closed all %d trades (panel button)"), n));
       }
    }
+   else if(sparam == PFX + "btnTest")
+   {
+      ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+      if(QuickTestAllowed(true) &&
+         MessageBox(StringFormat(L("ทดสอบระบบ: เปิด BUY %.2f lot จริง แล้วปิดภายใน %d มิลลิวินาที\nเสียแค่ค่าสเปรด และไม่นับเป็นไม้ของวัน\n\nเริ่มทดสอบ?",
+                                   "System test: open a real BUY of %.2f lot and close it after %d ms.\nCosts only the spread and does not count as a trade of the day.\n\nStart the test?"),
+                                 SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), InpQuickTestHoldMs),
+                    "GoldScalperM15", MB_YESNO | MB_ICONQUESTION) == IDYES)
+         QuickTestStart(L("ปุ่มบนแผง", "panel button"));
+   }
    else if(sparam == PFX + "btnAcct")
    {
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
@@ -911,6 +947,13 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
    double riskMoney = RiskPerLot(slDist) * lots;          // money lost if SL is hit (0 = unknown)
    string ccy       = AccountInfoString(ACCOUNT_CURRENCY);
+   // Risk-% sizing needs the tick value. Right after a (re)connect it can still be 0: then the lot
+   // would silently fall back to InpLots and every risk check below would pass. Skip instead.
+   if(lotModeRt == LOT_RISK && riskMoney <= 0)
+   {
+      NotifyFailure(StringFormat(L("ข้าม %s: ยังคำนวณความเสี่ยงไม่ได้ (tick value = 0) - รอราคา/การเชื่อมต่อ", "Skipped %s: risk cannot be computed yet (tick value is 0) - waiting for prices / connection"), side));
+      return;
+   }
    if(InpMaxRiskPct > 0 && riskMoney > equity * InpMaxRiskPct / 100.0)
    {
       NotifyFailure(StringFormat(L("ข้าม %s: SL เสี่ยง %.2f (%.1f%% ของ Equity) เกินกำหนด %.1f%%", "Skipped %s: SL risk %.2f (%.1f%% of equity) is above the %.1f%% cap"), side,
@@ -964,6 +1007,21 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
 
    bool ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, "GoldScalper BUY")
                    : trade.Sell(lots, _Symbol, bid, sl, tp, "GoldScalper SELL");
+   // Requote / price changed: retry once at the new price with the same stop distance and lot,
+   // so the risk stays the same. The breakout signal is only evaluated once per bar.
+   uint rc0 = trade.ResultRetcode();
+   if(!ok && (rc0 == TRADE_RETCODE_REQUOTE || rc0 == TRADE_RETCODE_PRICE_CHANGED || rc0 == TRADE_RETCODE_PRICE_OFF))
+   {
+      Print(StringFormat("Order %s: %d %s - retrying once at the new price", side, rc0, trade.ResultRetcodeDescription()));
+      ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      price = isBuy ? ask : bid;
+      sl    = NormPrice(isBuy ? ask - slDist : bid + slDist);
+      tp    = InpTP_ATR > 0 ? NormPrice(isBuy ? ask + tpDist : bid - tpDist) : 0;
+      if(SpreadOK())
+         ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, "GoldScalper BUY")
+                    : trade.Sell(lots, _Symbol, bid, sl, tp, "GoldScalper SELL");
+   }
    if(ok)
    {
       CaptureEntry(isBuy ? 1 : -1, trade.ResultPrice() > 0 ? trade.ResultPrice() : price, sl, atr, lots);
@@ -1051,7 +1109,8 @@ void NotifyFailure(string msg)
 //| PowerShell console (tools\GS15_Console.ps1) - live only.          |
 //| The EA writes Common\Files\GS15_<sym>_<magic>_status.txt every    |
 //| second and appends events to ..._log.txt; the console writes one |
-//| command into ..._cmd.txt (MODE1, MODE2, PAUSE, RESUME, CLOSEALL). |
+//| command into ..._cmd.txt (MODE1, MODE2, PAUSE, RESUME, CLOSEALL,     |
+//| TEST, ACCOUNT); ACCOUNT also writes ..._account.txt.             |
 //+------------------------------------------------------------------+
 // Only the last 4 digits, so console screenshots can be shared safely.
 string MaskedLogin()
@@ -1199,6 +1258,16 @@ void ReadConsoleCommand()
       SetPaused(cmd == "PAUSE");
       Notify(paused ? L("หยุดเปิดไม้ใหม่ชั่วคราว (จาก console)", "Paused: no new trades (from the console)")
                     : L("กลับมาเทรดตามปกติ (จาก console)", "Trading resumed (from the console)"));
+   }
+   else if(cmd == "ACCOUNT")
+   {
+      AccountCheck(false);
+      ConsoleLog("INFO", L("ตรวจบัญชีแล้ว (ดูผลด้วยปุ่ม A)", "Account check done (press A to view)"));
+   }
+   else if(cmd == "TEST")
+   {
+      if(QuickTestAllowed(true))
+         QuickTestStart("console");
    }
    else if(cmd == "CLOSEALL")
    {
@@ -1384,9 +1453,12 @@ void CreatePanel()
    MakeButton(PFX + "btnStyle2", InpPanelX + 150, by + 32, 130, 24);
    ObjectSetString(0, PFX + "btnStyle1", OBJPROP_TEXT, L("โหมด 1: วันละ 1 ไม้", "Mode 1: one/day"));
    ObjectSetString(0, PFX + "btnStyle2", OBJPROP_TEXT, L("โหมด 2: หลายไม้", "Mode 2: multi"));
-   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 64, 270, 24);
+   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 64, 184, 24);
    ObjectSetString(0, PFX + "btnAcct", OBJPROP_TEXT, L("ตรวจบัญชี / คำแนะนำ", "Account check / advice"));
    ObjectSetInteger(0, PFX + "btnAcct", OBJPROP_BGCOLOR, C'50,80,140');
+   MakeButton(PFX + "btnTest", InpPanelX + 200, by + 64, 80, 24);
+   ObjectSetString(0, PFX + "btnTest", OBJPROP_TEXT, L("ทดสอบ", "Test"));
+   ObjectSetInteger(0, PFX + "btnTest", OBJPROP_BGCOLOR, C'120,90,30');
    ObjectSetInteger(0, PFX + "btnClose", OBJPROP_BGCOLOR, C'150,45,45');
 }
 
@@ -1665,7 +1737,12 @@ bool DailyLossHit(double profitToday)
 {
    if(InpMaxDailyLossPct <= 0 || profitToday >= 0)
       return false;
-   double startBalance = AccountInfoDouble(ACCOUNT_BALANCE) - profitToday;
+   // profitToday = realized + floating; the balance only contains the realized part.
+   double floating = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+      if(PositionGetTicket(i) > 0 && IsMine())
+         floating += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+   double startBalance = AccountInfoDouble(ACCOUNT_BALANCE) - (profitToday - floating);
    return -profitToday >= startBalance * InpMaxDailyLossPct / 100.0;
 }
 
@@ -1720,6 +1797,113 @@ double RiskPerLot(double slDist)
    if(perLot <= 0)
       return 0;
    return perLot + InpCommissionLot;
+}
+
+//+------------------------------------------------------------------+
+//| Test button: open a minimum-lot trade and close it seconds later, |
+//| to prove orders really go through. Own magic number, so it never  |
+//| counts as a trade of the day, a loss or a losing streak.          |
+//+------------------------------------------------------------------+
+ulong QuickTestMagic()
+{
+   return InpMagic + 1;
+}
+
+bool QuickTestAllowed(bool say)
+{
+   string why = "";
+   bool   demo = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO;
+   if(MQLInfoInteger(MQL_TESTER))                     why = "not in the Strategy Tester";
+   else if(qtTicket != 0)                             why = L("กำลังทดสอบอยู่", "a test is already running");
+   else if(!demo && !InpQuickTestReal)                why = L("บัญชีจริง: ปิดไว้ (เปิดได้ที่ InpQuickTestReal)", "real account: off (InpQuickTestReal)");
+   else if(CountPositions() > 0)                      why = L("มีไม้ของ EA เปิดอยู่ - ไม่ทดสอบซ้อน", "this EA has an open trade - test skipped");
+   else if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+                                                      why = L("ยังไม่ได้เปิด Algo Trading", "Algo Trading is not enabled");
+   if(why != "" && say)
+      Notify(L("ทดสอบไม่ได้: ", "Test not started: ") + why, "WARN");
+   return why == "";
+}
+
+void QuickTestStart(string source)
+{
+   double lots  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double atr[];
+   double slDist = MathMax(GetBuf(hATR, atr) ? atr[0] * InpSL_ATR : ask * 0.01, MinStopDistance());
+   double sl    = NormPrice(ask - slDist);   // protected even if the EA stops mid-test
+   ulong  t0    = GetTickCount64();
+   bool   ok    = qtTrade.Buy(lots, _Symbol, ask, sl, 0, "GS15 TEST");
+   qtSendMs     = GetTickCount64() - t0;
+   ulong  deal  = qtTrade.ResultDeal();
+   if(!ok || deal == 0 || !HistoryDealSelect(deal))
+   {
+      Notify(StringFormat(L("ทดสอบล้มเหลว: เปิดไม้ไม่ได้ (%d %s) ใน %I64u ms", "TEST FAILED: could not open the trade (%d %s) after %I64u ms"),
+                          qtTrade.ResultRetcode(), qtTrade.ResultRetcodeDescription(), qtSendMs), "LOSS");
+      return;
+   }
+   qtTicket   = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+   qtOpenedMs = GetTickCount64();
+   qtSource   = source;
+   qtOpenPx   = qtTrade.ResultPrice();
+   // Hold briefly, then close at once - no alert in between, so nothing delays the close.
+   if(InpQuickTestHoldMs > 0)
+      Sleep(InpQuickTestHoldMs);
+   QuickTestClose();
+}
+
+// Closes the test trade and reports. On failure the ticket is kept and QuickTestStep retries.
+bool QuickTestClose()
+{
+   if(!PositionSelectByTicket(qtTicket))
+   {
+      Notify(L("ทดสอบ: ไม้ทดสอบถูกปิดไปก่อนแล้ว (SL หรือปิดมือ)", "TEST: the test trade was already closed (SL or by hand)"), "WARN");
+      qtTicket = 0;
+      return true;
+   }
+   double pl   = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+   ulong  held = GetTickCount64() - qtOpenedMs;
+   ulong  t0   = GetTickCount64();
+   bool   ok   = qtTrade.PositionClose(qtTicket);
+   ulong  closeMs = GetTickCount64() - t0;
+   if(ok && !PositionSelectByTicket(qtTicket))
+   {
+      Notify(StringFormat(L("ทดสอบผ่าน (%s): BUY %.2f @ %s - เปิด %I64u ms, ถือ %I64u ms, ปิด %I64u ms, รวม %I64u ms, ค่าใช้จ่าย %.2f %s",
+                            "TEST PASSED (%s): BUY %.2f @ %s - open %I64u ms, held %I64u ms, close %I64u ms, total %I64u ms, cost %.2f %s"),
+                          qtSource, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), DoubleToString(qtOpenPx, _Digits),
+                          qtSendMs, held, closeMs, qtSendMs + held + closeMs, pl, AccountInfoString(ACCOUNT_CURRENCY)), "WIN");
+      qtTicket = 0;
+      return true;
+   }
+   Print(StringFormat("Test close #%I64u failed: %d %s - retrying every second", qtTicket, qtTrade.ResultRetcode(), qtTrade.ResultRetcodeDescription()));
+   return false;
+}
+
+// Called every second: retries a test trade that did not close, and closes any test trade
+// left over from an MT5 restart.
+void QuickTestStep()
+{
+   if(MQLInfoInteger(MQL_TESTER))
+      return;
+   if(qtTicket == 0)
+   {
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         ulong t = PositionGetTicket(i);
+         if(t > 0 && PositionGetString(POSITION_SYMBOL) == _Symbol &&
+            (ulong)PositionGetInteger(POSITION_MAGIC) == QuickTestMagic() && qtTrade.PositionClose(t))
+            Notify(StringFormat(L("ปิดไม้ทดสอบที่ค้าง #%I64u", "Closed leftover test trade #%I64u"), t), "WARN");
+      }
+      return;
+   }
+   if(QuickTestClose())
+      return;
+   if(GetTickCount64() - qtOpenedMs > 30000)
+   {
+      Notify(StringFormat(L("ทดสอบล้มเหลว: ปิดไม้ทดสอบ #%I64u ไม่ได้ (%d %s) - ปิดเองใน MT5 (มี SL ป้องกันอยู่)",
+                            "TEST FAILED: could not close test trade #%I64u (%d %s) - close it in MT5 (it has an SL)"),
+                          qtTicket, qtTrade.ResultRetcode(), qtTrade.ResultRetcodeDescription()), "LOSS");
+      qtTicket = 0;   // the leftover check above keeps trying every second
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -2072,6 +2256,24 @@ void AccountCheck(bool popup)
          if(sl[i] != "")
             Print(sl[i]);
       Print(L("(เปลี่ยนโหมดได้ที่ปุ่ม \"โหมด 1\" / \"โหมด 2\" บนแผง)", "(Switch with the \"Mode 1\" / \"Mode 2\" panel buttons)"));
+      // The same text for the PowerShell console's Account view (key A).
+      if(InpConsole && !MQLInfoInteger(MQL_TESTER))
+      {
+         int f = FileOpen(ConsoleBase() + "_account.txt", FILE_WRITE | FILE_TXT | FILE_UNICODE | FILE_COMMON | FILE_SHARE_READ);
+         if(f != INVALID_HANDLE)
+         {
+            FileWriteString(f, "updated=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
+            FileWriteString(f, "title=" + title + "\r\n");
+            for(int i = 0; i < n; i++)
+               if(lines[i] != "")
+                  FileWriteString(f, lines[i] + "\r\n");
+            FileWriteString(f, "\r\n" + L("โหมดเทรดตอนนี้: ", "Current trade mode: ") + StyleLine() + "\r\n");
+            for(int i = 0; i < ns; i++)
+               if(sl[i] != "")
+                  FileWriteString(f, sl[i] + "\r\n");
+            FileClose(f);
+         }
+      }
       return;
    }
 

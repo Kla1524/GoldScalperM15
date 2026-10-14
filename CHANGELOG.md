@@ -2,6 +2,32 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.42 — Test button, console redesign, review fixes
+- **Test** button on the panel and `T` in the console: opens a real BUY of the minimum lot with an SL, holds it `InpQuickTestHoldMs` (100 ms), closes it, and reports how long the open, hold and close took and what it cost (the spread). Proves that orders really go through and nothing is stuck.
+- The test trade uses its own magic number (`InpMagic` + 1), so it never counts as a trade of the day, a loss, a cooldown or a losing streak. It is refused while the EA has an open trade or Algo Trading is off. A test trade left by an MT5 restart is closed automatically.
+- Demo accounts only, unless `InpQuickTestReal = true`.
+- **Console redesign:**
+  - A compact control panel in a dark / blue / navy theme, following Gravity UI design principles: semantic status colours, primary / normal / danger button views, a visible selected mode, 4-8-12-16-24 spacing. All colours are in one theme table at the top of `tools/GS15_Console.ps1`.
+  - Sections: header with a DEMO / LIVE badge, status, today, mode & risk, market & news, controls, and the event journal.
+  - The status is shown with a colour and a label: RUNNING, WAITING, NEWS WINDOW, IN TRADE, PAUSED, DAILY LIMIT, HALTED or ERROR.
+  - Target risk and actual risk are shown separately.
+  - The upcoming news event shows the time left.
+- **Safer console commands:**
+  - One command at a time: the buttons are disabled until the EA replies.
+  - The result shown is the EA's own reply.
+  - A command the EA does not pick up within 10 s is cancelled and reported.
+- **`A` = account check:** new `ACCOUNT` command; the full result opens in the console.
+- **Shortcuts:** `tools/Make-ConsoleShortcut.ps1` creates "GoldScalper Console" shortcuts on the Desktop and in the Start menu, opening a window sized for the whole panel.
+- **The chart panel is optional:** `InpShowPanel = false` hides it; everything can be done from the console.
+- **Fixes from a code review** (`docs/CODE_REVIEW.md`):
+  - Risk-% sizing skips the trade when the tick value is not known yet (right after connecting). It no longer falls back to a fixed lot without risk checks.
+  - A requote or price change gets one retry at the new price, with the same lot and stop distance. Before, the day's breakout was lost.
+  - Deposits and withdrawals move the equity peak, so a withdrawal does not trigger the drawdown halt.
+  - The daily loss limit uses the realized start-of-day balance.
+- Evidence: the v1.41 baseline report and trade journal are in `reports/experiments/baseline_v141/`.
+  - Across all 473 trades of 2018–2026, the real risk per trade never exceeded the 1% target (mean 0.79%).
+  - `tools/analyze_journal.py` reproduces the analysis.
+
 ## v1.41 — Risk guards: drawdown halt, losing-streak halt, lot cap
 - **Drawdown halt** (`InpMaxDDPct`, 20%): when equity falls this far below its peak, the EA pauses itself and sends an alert. Open trades keep their SL and the daily close.
 - **Losing-streak halt** (`InpMaxLossStreak`, 5): the same after this many losing trades in a row.

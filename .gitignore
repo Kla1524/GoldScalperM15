@@ -5,3 +5,9 @@
 compile.log
 *.log
 reports/
+
+# Overnight experiment evidence is kept
+!reports/
+reports/*
+!reports/experiments/
+!reports/NIGHT_REPORT.md

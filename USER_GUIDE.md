@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.41 — User Guide
+# GoldScalperM15 v1.42 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -82,6 +82,7 @@ The panel (top-left of the chart) shows:
 
 **Buttons**
 - **Pause / Resume** — stops opening new trades (open trades are still managed). The setting is remembered across MT5 restarts.
+- **Test** — system test: opens a real BUY of the minimum lot (with an SL), closes it after 0.1 s (`InpQuickTestHoldMs` = 100) and reports the open/close time and cost. It does not count as a trade of the day. Demo only unless `InpQuickTestReal = true`. Console key: `T`.
 - **Close all** — closes only this EA's positions, after a confirmation dialog. Your manual trades are not affected.
 - **Mode 1: 1 trade/day / Mode 2: multi** — opens a window describing both modes (tested results, who each suits, the lot each would trade today), then asks to confirm the switch. The green button is the active mode; the choice is remembered across MT5 restarts.
   - **Mode 1** one bigger trade a day (`InpRiskPct`, 1%): 2018–2026 +105%, PF 1.46, DD 16.3%
@@ -91,7 +92,7 @@ The panel (top-left of the chart) shows:
 
 **System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 
-**PowerShell console** — double-click `GS15_Console.bat` in the project folder. It shows the EA's live status and a colour event log, newest first: opened, won, lost (with the reason), skipped (with the money at risk), news and warnings. Keys: `1` / `2` switch mode (both modes are explained first), `P` pause / resume, `C` close all (type CLOSE to confirm), `L` full log in Notepad, `Q` quit. Commands reach the EA within about a second. The EA works the same with the console closed. Files live in MT5's common `Files` folder (`GS15_<symbol>_<magic>_status/log/cmd.txt`); `InpConsole = false` turns this off.
+**PowerShell console** — open the "GoldScalper Console" shortcut on the Desktop or in the Start menu (create it once with `tools\Make-ConsoleShortcut.ps1`), or double-click `GS15_Console.bat` in the project folder. `A` runs the account check and shows the result. Commands are sent one at a time; the line under the buttons shows the EA's reply. It shows the EA's live status and a colour event log, newest first: opened, won, lost (with the reason), skipped (with the money at risk), news and warnings. Keys: `1` / `2` switch mode (both modes are explained first), `P` pause / resume, `A` account check, `T` test order, `C` close all (type CLOSE to confirm), `L` longer journal, `O` full log in Notepad, `Q` quit. Commands reach the EA within about a second. The EA works the same with the console closed. Files live in MT5's common `Files` folder (`GS15_<symbol>_<magic>_status/log/cmd.txt`); `InpConsole = false` turns this off.
 
 ## 4. Strategy and key settings
 
