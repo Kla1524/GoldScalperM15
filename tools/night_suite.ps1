@@ -1,4 +1,4 @@
-# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
+﻿# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
 # start after the daily close, run one backtest at a time, restart MT5 at the end.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\night_suite.ps1 -StartAt '00:15' -StopAt '07:30'
@@ -30,6 +30,7 @@ function Log([string]$m) { $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date),
 . "$Repo\tools\lab.ps1"   # for Get-LabSummary
 
 $runs = @(
+    @{ Name = 'R0_smc_smoke_1min_2026Q3';     From = '2026.08.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
     @{ Name = 'R1_regression_mode1_1min_3k';  From = '2018.01.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{} },
     @{ Name = 'R2_smc_realticks_3k';          From = '2024.10.14'; To = '2026.10.12'; Model = 4; Deposit = 3000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
     @{ Name = 'R3_orb_0.5pct_realticks_3k';   From = '2024.10.14'; To = '2026.10.12'; Model = 4; Deposit = 3000;  Delay = 0;  Inputs = @{ InpRiskPct = 0.5 } },
@@ -93,7 +94,7 @@ ShutdownTerminal=1
     foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { Copy-Item "$Common\$j" "$dir\" -Force } }
     $agentLog = Get-ChildItem $Agents -Recurse -Filter '*.log' | Where-Object { $_.FullName -match '\\logs\\' -and $_.LastWriteTime -ge $start } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($agentLog) {
-        Get-Content $agentLog.FullName -Encoding Unicode | Where-Object { $_ -match 'Risk guard|error|failed|final balance|history|quality|ticks|bars|SMC|generated|test passed|stopped' } |
+        Get-Content $agentLog.FullName -Encoding Unicode | Where-Object { $_ -match 'Risk guard|error|range|critical|failed|final balance|history|quality|ticks|bars|SMC|generated|test passed|stopped' } |
             Select-Object -Last 600 | Set-Content "$dir\tester_excerpt.log" -Encoding UTF8
     }
     $s = Get-LabSummary "$dir\report.htm"
