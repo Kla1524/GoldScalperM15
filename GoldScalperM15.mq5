@@ -9,12 +9,13 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.42"
-#define   VERSION_TEXT "1.42"
+#property version   "1.43"
+#define   VERSION_TEXT "1.43"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
 #include <Trade\Trade.mqh>
+#include "GS15_SMC.mqh"
 
 enum ENUM_STRATEGY
 {
@@ -39,7 +40,8 @@ enum ENUM_LOT_MODE
 enum ENUM_TRADE_STYLE
 {
    STYLE_ONE   = 1,  // Mode 1: one bigger trade a day
-   STYLE_MULTI = 2   // Mode 2: several smaller trades (no daily limit)
+   STYLE_MULTI = 2,  // Mode 2: several smaller trades (no daily limit)
+   STYLE_SMC   = 3   // Mode 3: SMC - FVG + CHoCH + OB (experimental)
 };
 
 //--- inputs
@@ -54,6 +56,35 @@ input ENUM_TIMEFRAMES InpTF              = PERIOD_M15;// Signal timeframe
 input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // Strategy
 input bool            InpAllowBuy        = true;      // Allow buys
 input bool            InpAllowSell       = true;      // Allow sells
+
+input group "=== Mode 3: SMC (FVG + CHoCH + OB) - experimental ==="
+input ENUM_TIMEFRAMES InpSmcTfBias      = PERIOD_H1;  // [SMC] bias and support/resistance timeframe
+input ENUM_TIMEFRAMES InpSmcTfStructure = PERIOD_M15; // [SMC] CHoCH / order block / FVG timeframe
+input ENUM_TIMEFRAMES InpSmcTfEntry     = PERIOD_M5;  // [SMC] confirmation candle timeframe
+input int    InpSmcAtrPeriod      = 14;    // [SMC] ATR period (all SMC timeframes)
+input int    InpSmcPivotLeft      = 2;     // [SMC] swing pivot: bars to the left
+input int    InpSmcPivotRight     = 2;     // [SMC] swing pivot: bars to the right (confirmation delay)
+input bool   InpSmcBiasFilter     = true;  // [SMC] trade only in the H1 bias direction (skip neutral)
+input int    InpSmcSRLookback     = 100;   // [SMC] H1 bars used for support/resistance swings
+input double InpSmcSRTolAtr       = 0.2;   // [SMC] merge S/R levels within x H1 ATR
+input double InpSmcBreakBufAtr    = 0.1;   // [SMC] CHoCH close must clear the swing by x M15 ATR
+input int    InpSmcObMaxBack      = 10;    // [SMC] order block: max bars back from the CHoCH bar
+input double InpSmcDispAtr        = 1.0;   // [SMC] displacement: impulse candle body >= x M15 ATR
+input double InpSmcFvgMinAtr      = 0.1;   // [SMC] minimum FVG width, x M15 ATR
+input int    InpSmcFvgWindow      = 3;     // [SMC] FVG must form within x bars after the CHoCH bar
+input bool   InpSmcRequireOverlap = false; // [SMC] entry zone = OB/FVG overlap only (skip if none)
+input double InpSmcRiskPct        = 0.5;   // [SMC] risk % of equity per trade
+input double InpSmcMinRR          = 1.5;   // [SMC] minimum reward:risk after costs
+input double InpSmcSlBufAtr       = 0.2;   // [SMC] SL buffer beyond OB / setup swing, x M15 ATR
+input double InpSmcTpBufAtr       = 0.1;   // [SMC] TP placed x M15 ATR before the H1 zone
+input int    InpSmcExpiryBars     = 16;    // [SMC] setup expires after x M15 bars
+input int    InpSmcRolloverHour   = 0;     // [SMC] broker rollover (swap) hour, server time (XM: 00:00)
+input int    InpSmcNoEntryBeforeMin = 60;  // [SMC] no entries x minutes before the rollover
+input int    InpSmcNoEntryAfterMin  = 60;  // [SMC] no entries x minutes after the rollover
+input int    InpSmcCloseBeforeMin = 15;    // [SMC] close mode-3 trades x minutes before the rollover
+input bool   InpSmcAllowReal      = false; // [SMC] allow mode 3 on a real account (demo-only until verified)
+input int    InpSmcLookbackBars   = 300;   // [SMC] M15 bars loaded for structure
+input bool   InpSmcDraw           = true;  // [SMC] draw zones, OB, FVG and CHoCH on the chart
 
 input group "=== Entry signal ==="
 input ENUM_TIMEFRAMES InpTrendTF = PERIOD_CURRENT; // Trend EMA timeframe (CURRENT = signal timeframe)
@@ -160,6 +191,7 @@ struct TradeInfo
 
 CTrade    trade;
 int       hFast, hSlow, hTrend, hRSI, hRSI2, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1;
+int       hSmcAtrBias = INVALID_HANDLE, hSmcAtrStruct = INVALID_HANDLE;
 TradeInfo ti;
 bool      tiValid       = false;
 // Lot settings in effect (inputs, or the account-check recommendation chosen in the popup).
@@ -238,11 +270,13 @@ int OnInit()
    hEmaH1 = iMA(_Symbol, PERIOD_H1, 200, 0, MODE_EMA, PRICE_CLOSE);   // journal / diagnosis only
    hEmaD1 = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_EMA, PRICE_CLOSE);
    hAdxH1 = iADX(_Symbol, PERIOD_H1, 14);
+   hSmcAtrBias   = iATR(_Symbol, InpSmcTfBias, InpSmcAtrPeriod);
+   hSmcAtrStruct = iATR(_Symbol, InpSmcTfStructure, InpSmcAtrPeriod);
 
    if(hFast == INVALID_HANDLE || hSlow == INVALID_HANDLE || hTrend == INVALID_HANDLE ||
       hRSI == INVALID_HANDLE || hRSI2 == INVALID_HANDLE || hATR == INVALID_HANDLE ||
       hATRD1 == INVALID_HANDLE || hEmaH1 == INVALID_HANDLE || hEmaD1 == INVALID_HANDLE ||
-      hAdxH1 == INVALID_HANDLE)
+      hAdxH1 == INVALID_HANDLE || hSmcAtrBias == INVALID_HANDLE || hSmcAtrStruct == INVALID_HANDLE)
    {
       Print("Indicator creation failed: ", GetLastError());
       return INIT_FAILED;
@@ -310,6 +344,14 @@ int OnInit()
       else
          SaveStyle();
    }
+   if(InpSmcRiskPct <= 0 || (InpMaxRiskPct > 0 && InpSmcRiskPct > InpMaxRiskPct) || InpSmcPivotLeft < 1 || InpSmcPivotRight < 1)
+   {
+      Print("InpSmcRiskPct must be > 0 and <= InpMaxRiskPct, SMC pivots >= 1");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   SmcRestore();
+   if(InpJournal && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
+      FileDelete(SmcJournalName(), FILE_COMMON);
    if(InpMultiRiskPct <= 0 || (InpMaxRiskPct > 0 && InpMultiRiskPct > InpMaxRiskPct))
    {
       Print("InpMultiRiskPct must be > 0 and <= InpMaxRiskPct (", InpMaxRiskPct, "%)");
@@ -349,6 +391,8 @@ void OnDeinit(const int reason)
    IndicatorRelease(hEmaH1);
    IndicatorRelease(hEmaD1);
    IndicatorRelease(hAdxH1);
+   IndicatorRelease(hSmcAtrBias);
+   IndicatorRelease(hSmcAtrStruct);
 }
 
 //+------------------------------------------------------------------+
@@ -461,7 +505,7 @@ void OnTick()
       for(int i = PositionsTotal() - 1; i >= 0; i--)
       {
          ulong ticket = PositionGetTicket(i);
-         if(ticket > 0 && IsMine() &&
+         if(ticket > 0 && IsMine() && !IsSmcPosition() &&   // mode-3 trades follow the rollover rule
             (now.hour >= InpDailyCloseHour || (datetime)PositionGetInteger(POSITION_TIME) < today))
             ClosePosition(ticket, L("ปิดประจำวัน", "daily close"));
       }
@@ -475,6 +519,13 @@ void OnTick()
    }
 
    TrackOpenTrade();
+   SmcManagePositions();
+
+   if(styleRt == STYLE_SMC)
+   {
+      SmcOnTick();
+      return;
+   }
 
    if(!IsNewBar())
       return;
@@ -689,9 +740,22 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
    // Codes for the CSV, Thai text for the phone.
    string codes = "", thai = "";
+   bool   smcTrade = IsSmcPositionId((ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID));
+   if(smcTrade)
+   {
+      SmcJournal("CLOSE", exitCode, price, 0, 0, 0, 0, 0, pl);
+      tiValid = false;
+   }
    if(pl < 0)
    {
-      LossReasons(exitCode, codes, thai);
+      if(smcTrade)
+      {
+         codes = "SMC_" + exitCode;
+         thai  = L("โหมด 3 SMC: ", "mode 3 SMC: ") + (exitCode == "SL" ? L("โดน SL ใต้/เหนือ order block", "stopped beyond the order block")
+                                                                     : L("ปิดก่อน rollover หรือปิดมือ", "closed before rollover or by hand"));
+      }
+      else
+         LossReasons(exitCode, codes, thai);
       if(InpLossCooldownMin > 0)
       {
          cooldownUntil = TimeCurrent() + InpLossCooldownMin * 60;
@@ -1219,6 +1283,7 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, StringFormat("ddv=%.2f\r\nddmax=%.1f\r\nstreak=%d\r\nstreakmax=%d\r\n",
                                    equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, InpMaxDDPct, lossStreak, InpMaxLossStreak));
    FileWriteString(f, "servertime=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
+   SmcWriteStatus(f);
    FileClose(f);
 }
 
@@ -1240,9 +1305,9 @@ void ReadConsoleCommand()
    StringTrimRight(cmd);
    StringToUpper(cmd);
 
-   if(cmd == "MODE1" || cmd == "MODE2")
+   if(cmd == "MODE1" || cmd == "MODE2" || cmd == "MODE3")
    {
-      ENUM_TRADE_STYLE target = cmd == "MODE1" ? STYLE_ONE : STYLE_MULTI;
+      ENUM_TRADE_STYLE target = cmd == "MODE1" ? STYLE_ONE : cmd == "MODE2" ? STYLE_MULTI : STYLE_SMC;
       if(target == styleRt)
          ConsoleLog("INFO", StringFormat(L("โหมด %d ใช้อยู่แล้ว", "Mode %d is already active"), (int)target));
       else
@@ -1363,9 +1428,14 @@ string BlockReason(int tradesToday, double profitToday)
    if(newsBlocked)                        return L("งดเทรด ช่วงข่าว", "News window - no trades");
    if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
    if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");
-   if(!InSession())                       return L("นอกเวลาเทรด", "Outside trading hours");
+   if(styleRt == STYLE_SMC)
+   {
+      string t = SmcTimeBlock();
+      if(t != "")                         return t;
+   }
+   else if(!InSession())                  return L("นอกเวลาเทรด", "Outside trading hours");
    if(!SpreadOK())                        return L("สเปรดกว้างเกิน", "Spread too wide");
-   if(!VolatilityOK())                    return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
+   if(styleRt != STYLE_SMC && !VolatilityOK()) return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
    return "";
 }
 
@@ -1800,6 +1870,554 @@ double RiskPerLot(double slDist)
 }
 
 //+------------------------------------------------------------------+
+//| Mode 3: SMC (FVG + CHoCH + OB) - state machine and execution      |
+//| Signal rules live in GS15_SMC.mqh; docs/SMC_RULES.md lists them.  |
+//+------------------------------------------------------------------+
+enum ENUM_SMC_STATE
+{
+   SMC_NONE = 0, SMC_DETECTED, SMC_READY, SMC_RETESTED, SMC_CONFIRMED,
+   SMC_SUBMITTED, SMC_TRADED, SMC_INVALIDATED, SMC_EXPIRED
+};
+
+SmcSetup       smc;
+ENUM_SMC_STATE smcState      = SMC_NONE;
+string         smcId         = "";
+string         smcNote       = "";        // why the setup ended, or what it waits for
+datetime       smcExpiry     = 0;
+int            smcRetries    = 0;
+ulong          smcPosId      = 0;
+bool           smcInit       = false;
+datetime       smcLastH1     = 0, smcLastM15 = 0, smcLastM5 = 0;
+int            smcBias       = 0;
+SmcZone        smcZones[];
+double         smcAtrH1      = 0, smcAtrM15 = 0;
+datetime       smcLastSwingUsed[2] = {0, 0};   // [0] bull, [1] bear: one CHoCH per swing
+datetime       smcLastTraded = 0;              // CHoCH time of the last traded setup (survives restarts)
+string         gvSmcTraded   = "";
+datetime       smcChochSeen  = 0;              // last CHoCH seen (any direction), for the console
+int            smcChochSeenDir = 0;
+double         smcPlanEntry = 0, smcPlanSl = 0, smcPlanTp = 0, smcPlanRR = 0, smcPlanRiskPct = 0;
+
+string SmcStateName(ENUM_SMC_STATE s)
+{
+   switch(s)
+   {
+      case SMC_DETECTED:    return "DETECTED";
+      case SMC_READY:       return "READY";
+      case SMC_RETESTED:    return "RETESTED";
+      case SMC_CONFIRMED:   return "CONFIRMED";
+      case SMC_SUBMITTED:   return "SUBMITTED";
+      case SMC_TRADED:      return "TRADED";
+      case SMC_INVALIDATED: return "INVALIDATED";
+      case SMC_EXPIRED:     return "EXPIRED";
+   }
+   return "NONE";
+}
+
+bool SmcActive()
+{
+   return smcState == SMC_DETECTED || smcState == SMC_READY || smcState == SMC_RETESTED || smcState == SMC_CONFIRMED;
+}
+
+string SmcDirText(int dir) { return dir > 0 ? "BUY" : "SELL"; }
+
+//--- journal --------------------------------------------------------
+string SmcJournalName()
+{
+   return StringFormat("GS15_smc_journal_%s_%I64u%s.csv", _Symbol, InpMagic, MQLInfoInteger(MQL_TESTER) ? "_tester" : "");
+}
+
+void SmcJournal(string evt, string reason, double entry = 0, double sl = 0, double tp = 0, double rr = 0,
+                double lots = 0, double riskPct = 0, double pl = 0)
+{
+   int f = FileOpen(SmcJournalName(), FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ, ',');
+   if(f == INVALID_HANDLE)
+      return;
+   if(FileSize(f) == 0)
+      FileWrite(f, "time", "event", "setup_id", "dir", "state", "reason", "ob_lo", "ob_hi", "fvg_lo", "fvg_hi",
+                "entry", "sl", "tp", "rr", "lots", "risk_pct", "pl");
+   FileSeek(f, 0, SEEK_END);
+   FileWrite(f, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS), evt, smcId, smc.dir > 0 ? "BUY" : smc.dir < 0 ? "SELL" : "",
+             SmcStateName(smcState), reason, DoubleToString(smc.obLo, _Digits), DoubleToString(smc.obHi, _Digits),
+             smc.hasFvg ? DoubleToString(smc.fvgLo, _Digits) : "", smc.hasFvg ? DoubleToString(smc.fvgHi, _Digits) : "",
+             DoubleToString(entry, _Digits), DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
+             DoubleToString(rr, 2), DoubleToString(lots, 2), DoubleToString(riskPct, 3), DoubleToString(pl, 2));
+   FileClose(f);
+}
+
+void SmcEnd(ENUM_SMC_STATE s, string why)
+{
+   smcState = s;
+   smcNote  = why;
+   SmcJournal(s == SMC_EXPIRED ? "EXPIRED" : "INVALIDATED", why);
+   ConsoleLog("SKIP", StringFormat("SMC %s setup %s %s: %s", SmcDirText(smc.dir), smcId, s == SMC_EXPIRED ? "expired" : "cancelled", why));
+}
+
+//--- data -----------------------------------------------------------
+// Closed bars only (shift 1), oldest first, with the ATR of each bar aligned.
+bool SmcLoad(ENUM_TIMEFRAMES tf, int handle, int count, MqlRates &r[], double &atr[])
+{
+   ArraySetAsSeries(r, false);
+   ArraySetAsSeries(atr, false);
+   int n = CopyRates(_Symbol, tf, 1, count, r);
+   if(n < 50)
+      return false;
+   if(CopyBuffer(handle, 0, 1, n, atr) != n)
+      return false;
+   return true;
+}
+
+int SmcIndexOf(const MqlRates &r[], datetime t)
+{
+   for(int i = ArraySize(r) - 1; i >= 0; i--)
+      if(r[i].time == t) return i;
+   return -1;
+}
+
+//--- time policy ----------------------------------------------------
+// Minutes from now to the broker rollover (InpSmcRolloverHour, server time) and since the last one.
+void SmcRolloverClock(int &toRoll, int &sinceRoll)
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int now  = dt.hour * 60 + dt.min;
+   int roll = InpSmcRolloverHour * 60;
+   toRoll    = (roll - now + 1440) % 1440;
+   sinceRoll = (now - roll + 1440) % 1440;
+}
+
+bool SmcSessionOpen()
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   datetime nowSec = (datetime)(dt.hour * 3600 + dt.min * 60 + dt.sec);
+   datetime from, to;
+   bool any = false;
+   for(uint i = 0; SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dt.day_of_week, i, from, to); i++)
+   {
+      any = true;
+      if(to == 0) to = 86400;
+      if(nowSec >= from && nowSec < to) return true;
+   }
+   return !any;   // no schedule published: rely on quotes and spread checks
+}
+
+// Mode-3-only entry blocks ("" = allowed).
+string SmcTimeBlock()
+{
+   if(!InpSmcAllowReal && AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_REAL)
+      return L("โหมด 3 ยังใช้ได้เฉพาะบัญชี Demo (InpSmcAllowReal)", "Mode 3 is demo-only until verified (InpSmcAllowReal)");
+   int toRoll, sinceRoll;
+   SmcRolloverClock(toRoll, sinceRoll);
+   if(toRoll <= InpSmcNoEntryBeforeMin)  return L("โหมด 3: ใกล้เวลา rollover - งดเปิดไม้", "Mode 3: rollover soon - no entries");
+   if(sinceRoll < InpSmcNoEntryAfterMin) return L("โหมด 3: เพิ่งผ่าน rollover - งดเปิดไม้", "Mode 3: just after rollover - no entries");
+   if(!SmcSessionOpen())                 return L("โหมด 3: นอกเวลาซื้อขายของ symbol", "Mode 3: symbol session closed");
+   if(!MQLInfoInteger(MQL_TESTER) && TimeCurrent() - (datetime)SymbolInfoInteger(_Symbol, SYMBOL_TIME) > 120)
+      return L("โหมด 3: ราคาไม่อัปเดต", "Mode 3: no fresh quotes");
+   return "";
+}
+
+bool IsSmcPosition()
+{
+   return StringFind(PositionGetString(POSITION_COMMENT), "SMC") == 0;
+}
+
+bool IsSmcPositionId(ulong posId)
+{
+   if(posId == 0) return false;
+   if(posId == smcPosId) return true;
+   if(!HistorySelectByPosition(posId)) return false;
+   for(int i = 0; i < HistoryDealsTotal(); i++)
+   {
+      ulong d = HistoryDealGetTicket(i);
+      if(d > 0 && HistoryDealGetInteger(d, DEAL_ENTRY) == DEAL_ENTRY_IN)
+         return StringFind(HistoryDealGetString(d, DEAL_COMMENT), "SMC") == 0;
+   }
+   return false;
+}
+
+// Every tick, in every mode: mode-3 trades never stay through the rollover.
+void SmcManagePositions()
+{
+   int toRoll, sinceRoll;
+   SmcRolloverClock(toRoll, sinceRoll);
+   if(toRoll > InpSmcCloseBeforeMin)
+      return;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t > 0 && IsMine() && IsSmcPosition())
+         ClosePosition(t, L("โหมด 3 ปิดก่อน rollover", "mode 3 close before rollover"));
+   }
+}
+
+//--- engine updates -------------------------------------------------
+void SmcUpdateH1()
+{
+   MqlRates r[]; double a[];
+   if(!SmcLoad(InpSmcTfBias, hSmcAtrBias, InpSmcSRLookback + InpSmcPivotLeft + InpSmcPivotRight + 5, r, a))
+      return;
+   int n = ArraySize(r);
+   SmcSwing s[];
+   SmcCollectSwings(r, n - 1, InpSmcPivotLeft, InpSmcPivotRight, PeriodSeconds(InpSmcTfBias), s);
+   int prevBias = smcBias;
+   smcBias  = SmcBias(s);
+   smcAtrH1 = a[n - 1];
+   SmcBuildZones(s, InpSmcSRTolAtr * smcAtrH1, smcZones);
+   if(InpSmcBiasFilter && SmcActive() && smcBias != smc.dir && prevBias != smcBias)
+      SmcEnd(SMC_INVALIDATED, smcBias == 0 ? "H1 bias became neutral" : "H1 bias flipped");
+}
+
+void SmcUpdateStructure()
+{
+   MqlRates r[]; double a[];
+   if(!SmcLoad(InpSmcTfStructure, hSmcAtrStruct, InpSmcLookbackBars, r, a))
+      return;
+   int n = ArraySize(r), m = n - 1;
+   int per = PeriodSeconds(InpSmcTfStructure);
+   smcAtrM15 = a[m];
+
+   // 1) Existing setup: re-locate it in the new arrays, then FVG / invalidation / expiry.
+   if(SmcActive())
+   {
+      int k = SmcIndexOf(r, smc.chochTime), ob = SmcIndexOf(r, smc.obTime);
+      if(k < 0 || ob < 0)
+         SmcEnd(SMC_EXPIRED, "setup bars left the lookback");
+      else
+      {
+         int shift = k - smc.breakIdx;
+         smc.breakIdx = k; smc.obIdx = ob; smc.impulseStart += shift;
+         if(smc.hasFvg) smc.fvgC += shift;
+         if(smcState == SMC_DETECTED)
+         {
+            SmcRefreshFvg(r, a, m, InpSmcFvgWindow, InpSmcFvgMinAtr, per, smc);
+            if(smc.hasFvg)
+               SmcMakeReady();
+            else if(m >= k + InpSmcFvgWindow)
+               SmcEnd(SMC_INVALIDATED, StringFormat("no FVG within %d bars of the CHoCH", InpSmcFvgWindow));
+         }
+         if(SmcActive() && smcState != SMC_DETECTED)
+         {
+            if(smc.dir > 0 && r[m].close < smc.obLo)      SmcEnd(SMC_INVALIDATED, "M15 closed below the order block");
+            else if(smc.dir < 0 && r[m].close > smc.obHi) SmcEnd(SMC_INVALIDATED, "M15 closed above the order block");
+            else if(TimeCurrent() >= smcExpiry)           SmcEnd(SMC_EXPIRED, StringFormat("no entry within %d M15 bars", InpSmcExpiryBars));
+         }
+      }
+   }
+
+   // 2) New CHoCH on the bar that just closed.
+   SmcSwing lvl;
+   int dir = SmcChochAt(r, a, m, InpSmcPivotLeft, InpSmcPivotRight, per, InpSmcBreakBufAtr, lvl);
+   if(dir == 0)
+      return;
+   smcChochSeen = r[m].time; smcChochSeenDir = dir;
+   int slot = dir > 0 ? 0 : 1;
+   if(lvl.time == smcLastSwingUsed[slot])
+      return;
+   smcLastSwingUsed[slot] = lvl.time;
+   if(SmcActive() && smc.dir != dir)
+      SmcEnd(SMC_INVALIDATED, "opposite CHoCH");
+   string tag = StringFormat("%s %s CHoCH %s", _Symbol, dir > 0 ? "bullish" : "bearish", TimeToString(r[m].time, TIME_DATE | TIME_MINUTES));
+   if(InpSmcBiasFilter && smcBias != dir)
+   {
+      ConsoleLog("SKIP", tag + StringFormat(" ignored: H1 bias is %s", smcBias > 0 ? "bullish" : smcBias < 0 ? "bearish" : "neutral"));
+      return;
+   }
+   if(r[m].time <= smcLastTraded)
+      return;   // already traded before a restart
+   SmcSetup st;
+   ZeroMemory(st);
+   if(!SmcBuildSetup(r, a, m, dir, lvl, per, InpSmcObMaxBack, InpSmcDispAtr, InpSmcFvgWindow, m, InpSmcFvgMinAtr, st))
+   {
+      ConsoleLog("SKIP", tag + StringFormat(" ignored: no displacement (body >= %.1f ATR) or no order block within %d bars", InpSmcDispAtr, InpSmcObMaxBack));
+      return;
+   }
+   if(SmcActive())
+      SmcEnd(SMC_INVALIDATED, "replaced by a newer CHoCH");
+   smc = st;
+   smcId = StringFormat("%s-%s-%s-%s", _Symbol, StringSubstr(EnumToString(InpSmcTfStructure), 7), dir > 0 ? "B" : "S",
+                        TimeToString(st.chochTime, TIME_DATE | TIME_MINUTES));
+   StringReplace(smcId, ".", ""); StringReplace(smcId, ":", ""); StringReplace(smcId, " ", "T");
+   smcState = SMC_DETECTED;
+   smcRetries = 0;
+   smcPlanEntry = smcPlanSl = smcPlanTp = smcPlanRR = smcPlanRiskPct = 0;
+   SmcJournal("DETECTED", StringFormat("CHoCH through %s, OB %s", DoubleToString(st.chochLevel, _Digits), TimeToString(st.obTime, TIME_DATE | TIME_MINUTES)));
+   ConsoleLog("INFO", StringFormat("SMC %s setup %s: CHoCH through %s, OB %s-%s", SmcDirText(dir), smcId,
+                                   DoubleToString(st.chochLevel, _Digits), DoubleToString(st.obLo, _Digits), DoubleToString(st.obHi, _Digits)));
+   if(smc.hasFvg)
+      SmcMakeReady();
+   else
+      smcNote = "waiting for an FVG";
+}
+
+void SmcMakeReady()
+{
+   double zlo, zhi;
+   if(!SmcEntryZone(smc, InpSmcRequireOverlap, zlo, zhi))
+   {
+      SmcEnd(SMC_INVALIDATED, "OB and FVG do not overlap (InpSmcRequireOverlap)");
+      return;
+   }
+   smcState  = SMC_READY;
+   smcExpiry = smc.readyTime + InpSmcExpiryBars * PeriodSeconds(InpSmcTfStructure);
+   smcNote   = "waiting for price to return to the zone";
+   SmcJournal("READY", StringFormat("FVG %s-%s, zone %s-%s", DoubleToString(smc.fvgLo, _Digits), DoubleToString(smc.fvgHi, _Digits),
+                                    DoubleToString(zlo, _Digits), DoubleToString(zhi, _Digits)));
+   ConsoleLog("INFO", StringFormat("SMC %s setup %s ready: zone %s-%s, FVG %s-%s, expires %s", SmcDirText(smc.dir), smcId,
+                                   DoubleToString(zlo, _Digits), DoubleToString(zhi, _Digits), DoubleToString(smc.fvgLo, _Digits),
+                                   DoubleToString(smc.fvgHi, _Digits), TimeToString(smcExpiry, TIME_DATE | TIME_MINUTES)));
+}
+
+void SmcUpdateEntryBar()
+{
+   if(smcState != SMC_READY && smcState != SMC_RETESTED)
+      return;
+   MqlRates b[];
+   ArraySetAsSeries(b, true);
+   if(CopyRates(_Symbol, InpSmcTfEntry, 1, 1, b) != 1)
+      return;
+   if(b[0].time < smc.readyTime)
+      return;   // only price action after the setup was complete counts
+   double zlo, zhi;
+   SmcEntryZone(smc, InpSmcRequireOverlap, zlo, zhi);
+   if(smcState == SMC_READY && SmcTouches(b[0], zlo, zhi))
+   {
+      smcState = SMC_RETESTED;
+      smcNote  = "zone touched - waiting for a confirmation candle";
+   }
+   if(SmcConfirmCandle(b[0], smc.dir, zlo, zhi))
+   {
+      smcState = SMC_CONFIRMED;
+      smcNote  = StringFormat("confirmed by the %s candle of %s", StringSubstr(EnumToString(InpSmcTfEntry), 7), TimeToString(b[0].time, TIME_MINUTES));
+      SmcJournal("CONFIRMED", smcNote);
+   }
+}
+
+// Called every tick in mode 3.
+void SmcOnTick()
+{
+   datetime h1  = iTime(_Symbol, InpSmcTfBias, 0);
+   datetime m15 = iTime(_Symbol, InpSmcTfStructure, 0);
+   datetime m5  = iTime(_Symbol, InpSmcTfEntry, 0);
+   if(h1 == 0 || m15 == 0 || m5 == 0)
+      return;
+   if(!smcInit)
+   {
+      smcInit = true;
+      SmcUpdateH1();
+      smcLastH1 = h1;
+   }
+   if(h1 != smcLastH1)   { smcLastH1 = h1;   SmcUpdateH1(); }
+   if(m15 != smcLastM15) { smcLastM15 = m15; SmcUpdateStructure(); SmcDraw(); }
+   if(m5 != smcLastM5)   { smcLastM5 = m5;   SmcUpdateEntryBar(); }
+   if(smcState == SMC_CONFIRMED)
+      SmcTryEnter();
+}
+
+//--- entry ----------------------------------------------------------
+void SmcSkip(string why)
+{
+   SmcEnd(SMC_INVALIDATED, why);
+   Notify(StringFormat(L("ข้าม SMC %s (%s): %s", "Skipped SMC %s (%s): %s"), SmcDirText(smc.dir), smcId, why), "SKIP");
+}
+
+void SmcTryEnter()
+{
+   if(CountPositions() > 0) { SmcSkip("a position of this EA is already open"); return; }
+   int    tradesToday; double profitToday;
+   GetTodayStats(tradesToday, profitToday);
+   string block = BlockReason(tradesToday, profitToday);
+   if(block != "") { SmcSkip("blocked: " + block); return; }
+
+   bool   isBuy = smc.dir > 0;
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(ask <= 0 || bid <= 0) { SmcSkip("no quotes"); return; }
+   double entry = isBuy ? ask : bid;
+   double atr   = smcAtrM15;
+   double sl    = isBuy ? MathMin(smc.obLo, smc.structLo) - InpSmcSlBufAtr * atr
+                        : MathMax(smc.obHi, smc.structHi) + InpSmcSlBufAtr * atr;
+   SmcZone z;
+   bool haveTarget = isBuy ? SmcNearestResistance(smcZones, entry, z) : SmcNearestSupport(smcZones, entry, z);
+   if(!haveTarget) { SmcSkip(isBuy ? "no confirmed H1 resistance above price for a target" : "no confirmed H1 support below price for a target"); return; }
+   double tp = isBuy ? z.lo - InpSmcTpBufAtr * atr : z.hi + InpSmcTpBufAtr * atr;
+   sl = NormPrice(sl); tp = NormPrice(tp);
+   if(isBuy ? (sl >= entry || tp <= entry) : (sl <= entry || tp >= entry))
+   { SmcSkip(StringFormat("target zone %s-%s is at or behind the entry - no room", DoubleToString(z.lo, _Digits), DoubleToString(z.hi, _Digits))); return; }
+
+   // Money per 1 lot from the server's own calculation, plus slippage allowance and commission.
+   ENUM_ORDER_TYPE type = isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   double lossLot = 0, gainLot = 0, slipLot = 0;
+   if(!OrderCalcProfit(type, _Symbol, 1.0, entry, sl, lossLot) || !OrderCalcProfit(type, _Symbol, 1.0, entry, tp, gainLot))
+   { SmcSkip("OrderCalcProfit failed"); return; }
+   slipLot = LossPerLot(InpSlippagePts * _Point);
+   double riskLot   = MathAbs(lossLot) + slipLot + InpCommissionLot;
+   double rewardLot = gainLot - InpCommissionLot;
+   double rr = riskLot > 0 ? rewardLot / riskLot : 0;
+   smcPlanEntry = entry; smcPlanSl = sl; smcPlanTp = tp; smcPlanRR = rr;
+   if(rr < InpSmcMinRR)
+   { SmcSkip(StringFormat("RR %.2f < %.2f after costs (target %s, stop %s)", rr, InpSmcMinRR, DoubleToString(tp, _Digits), DoubleToString(sl, _Digits))); return; }
+
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double lots = NormalizeLots(equity * RiskPctEff() / 100.0 / riskLot);
+   double cap = MaxLotCap(entry);
+   if(cap > 0 && lots > cap) lots = NormalizeLots(cap);
+   double riskMoney = riskLot * lots;
+   smcPlanRiskPct = equity > 0 ? riskMoney / equity * 100.0 : 0;
+   if(riskMoney > equity * RiskPctEff() / 100.0 * 1.0001)
+   { SmcSkip(StringFormat("min lot %.2f would risk %.2f (%.2f%%) > %.2f%% target", lots, riskMoney, smcPlanRiskPct, RiskPctEff())); return; }
+   if(InpMaxDailyLossPct > 0)
+   {
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+      double budget  = (balance - profitToday) * InpMaxDailyLossPct / 100.0 - MathMax(0.0, -profitToday);
+      if(riskMoney > budget)
+      { SmcSkip(StringFormat("daily loss budget left %.2f < risk %.2f", MathMax(0.0, budget), riskMoney)); return; }
+   }
+   // Broker constraints.
+   long   mode   = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   if(mode == SYMBOL_TRADE_MODE_DISABLED || mode == SYMBOL_TRADE_MODE_CLOSEONLY ||
+      (isBuy && mode == SYMBOL_TRADE_MODE_SHORTONLY) || (!isBuy && mode == SYMBOL_TRADE_MODE_LONGONLY))
+   { SmcSkip("symbol trade mode does not allow this order"); return; }
+   double minStop = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
+   double exitPx  = isBuy ? bid : ask;
+   if(MathAbs(exitPx - sl) < minStop || MathAbs(tp - exitPx) < minStop)
+   { SmcSkip("SL or TP closer than the broker stops level"); return; }
+
+   MqlTradeRequest req; MqlTradeCheckResult chk;
+   ZeroMemory(req); ZeroMemory(chk);
+   req.action = TRADE_ACTION_DEAL; req.symbol = _Symbol; req.volume = lots; req.type = type;
+   req.price = entry; req.sl = sl; req.tp = tp; req.deviation = 30; req.magic = InpMagic;
+   long fm = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   req.type_filling = (fm & SYMBOL_FILLING_FOK) != 0 ? ORDER_FILLING_FOK : (fm & SYMBOL_FILLING_IOC) != 0 ? ORDER_FILLING_IOC : ORDER_FILLING_RETURN;
+   if(!OrderCheck(req, chk) || (chk.retcode != 0 && chk.retcode != TRADE_RETCODE_DONE))
+   { SmcSkip(StringFormat("OrderCheck: %d %s", chk.retcode, chk.comment)); return; }
+   if(!AcquireOrderLock()) return;   // another chart is sending right now: try again next tick
+
+   smcState = SMC_SUBMITTED;
+   string comment = "SMC " + StringSubstr(smcId, StringLen(_Symbol) + 1);
+   bool ok = isBuy ? trade.Buy(lots, _Symbol, entry, sl, tp, comment) : trade.Sell(lots, _Symbol, entry, sl, tp, comment);
+   uint rc = trade.ResultRetcode();
+   if(ok && (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_PLACED) && trade.ResultDeal() > 0)
+   {
+      smcState = SMC_TRADED;
+      if(HistoryDealSelect(trade.ResultDeal()))
+         smcPosId = (ulong)HistoryDealGetInteger(trade.ResultDeal(), DEAL_POSITION_ID);
+      smcLastTraded = smc.chochTime;
+      if(!MQLInfoInteger(MQL_TESTER))
+         GlobalVariableSet(gvSmcTraded, (double)smcLastTraded);
+      double fill = trade.ResultPrice() > 0 ? trade.ResultPrice() : entry;
+      smcNote = "traded";
+      SmcJournal("OPEN", smcNote, fill, sl, tp, rr, lots, smcPlanRiskPct);
+      string msg = StringFormat(L("เปิด %s %.2f lot @ %s (โหมด 3 SMC %s) | SL %s | TP %s | RR %.2f | เสี่ยง %.2f %s (%.2f%%)",
+                                  "Opened %s %.2f lot @ %s (mode 3 SMC %s) | SL %s | TP %s | RR %.2f | risk %.2f %s (%.2f%%)"),
+                                SmcDirText(smc.dir), lots, DoubleToString(fill, _Digits), smcId, DoubleToString(sl, _Digits),
+                                DoubleToString(tp, _Digits), rr, riskMoney, AccountInfoString(ACCOUNT_CURRENCY), smcPlanRiskPct);
+      if(InpNotifyTrades) Notify(msg, "OPEN"); else ConsoleLog("OPEN", msg);
+      return;
+   }
+   if((rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_PRICE_CHANGED || rc == TRADE_RETCODE_PRICE_OFF) && smcRetries < 2)
+   {
+      smcRetries++;
+      smcState = SMC_CONFIRMED;   // re-evaluated (price, RR, risk) on the next tick
+      Print(StringFormat("SMC order %s: %d %s - retry %d at the next tick", smcId, rc, trade.ResultRetcodeDescription(), smcRetries));
+      return;
+   }
+   SmcSkip(StringFormat("order rejected: %d %s", rc, trade.ResultRetcodeDescription()));
+}
+
+//--- chart drawing (live, or visual tester) ------------------------
+void SmcRect(string name, datetime t1, double p1, datetime t2, double p2, color c)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, p1, t2, p2);
+      ObjectSetInteger(0, name, OBJPROP_FILL, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   }
+   ObjectMove(0, name, 0, t1, p1);
+   ObjectMove(0, name, 1, t2, p2);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+}
+
+void SmcDraw()
+{
+   if(!InpSmcDraw || (MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_VISUAL_MODE)))
+      return;
+   datetime now = TimeCurrent(), end = now + 6 * PeriodSeconds(InpSmcTfStructure);
+   ObjectsDeleteAll(0, PFX + "smc_");
+   // Nearest H1 zones around price (these are rule-based levels, not guaranteed reactions).
+   double px = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   SmcZone z;
+   if(SmcNearestResistance(smcZones, px, z)) SmcRect(PFX + "smc_res", now - 48 * 3600, z.lo, end, z.hi + _Point, C'90,40,50');
+   if(SmcNearestSupport(smcZones, px, z))    SmcRect(PFX + "smc_sup", now - 48 * 3600, z.lo - _Point, end, z.hi, C'30,70,60');
+   if(smcState == SMC_NONE || smc.dir == 0 || (!SmcActive() && smcState != SMC_TRADED))
+      return;
+   SmcRect(PFX + "smc_ob", smc.obTime, smc.obLo, end, smc.obHi, smc.dir > 0 ? C'28,60,120' : C'110,40,60');
+   if(smc.hasFvg)
+      SmcRect(PFX + "smc_fvg", smc.fvgTime, smc.fvgLo, end, smc.fvgHi, C'40,60,90');
+   string ln = PFX + "smc_choch";
+   ObjectCreate(0, ln, OBJ_TREND, 0, smc.chochSwingTime, smc.chochLevel, smc.chochTime, smc.chochLevel);
+   ObjectSetInteger(0, ln, OBJPROP_COLOR, C'121,173,255');
+   ObjectSetInteger(0, ln, OBJPROP_STYLE, STYLE_DASH);
+   ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, ln, OBJPROP_HIDDEN, true);
+   ObjectSetString(0, ln, OBJPROP_TEXT, "CHoCH " + SmcDirText(smc.dir));
+}
+
+//--- console status --------------------------------------------------
+// What the current setup still needs, in plain words.
+string SmcMissing()
+{
+   if(InpSmcBiasFilter && smcBias == 0) return "H1 bias is neutral - waiting for HH+HL or LH+LL";
+   if(!SmcActive() && smcState != SMC_SUBMITTED) return StringFormat("waiting for a %s CHoCH on %s",
+                                      smcBias > 0 ? "bullish" : smcBias < 0 ? "bearish" : "", StringSubstr(EnumToString(InpSmcTfStructure), 7));
+   return smcNote;
+}
+
+void SmcWriteStatus(int f)
+{
+   SmcZone z;
+   double px = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   string sup = SmcNearestSupport(smcZones, px, z) ? DoubleToString(z.lo, _Digits) + "-" + DoubleToString(z.hi, _Digits) : "-";
+   string res = SmcNearestResistance(smcZones, px, z) ? DoubleToString(z.lo, _Digits) + "-" + DoubleToString(z.hi, _Digits) : "-";
+   FileWriteString(f, "smc_bias=" + (smcBias > 0 ? "BULLISH" : smcBias < 0 ? "BEARISH" : "NEUTRAL") + "\r\n");
+   FileWriteString(f, "smc_support=" + sup + "\r\nsmc_resistance=" + res + "\r\n");
+   FileWriteString(f, "smc_choch=" + (smcChochSeen > 0 ? (smcChochSeenDir > 0 ? "BULLISH " : "BEARISH ") + TimeToString(smcChochSeen, TIME_DATE | TIME_MINUTES) : "-") + "\r\n");
+   FileWriteString(f, "smc_setup=" + (smcId != "" ? smcId : "-") + "\r\nsmc_state=" + SmcStateName(smcState) + "\r\n");
+   FileWriteString(f, "smc_ob=" + (smcId != "" ? DoubleToString(smc.obLo, _Digits) + "-" + DoubleToString(smc.obHi, _Digits) : "-") + "\r\n");
+   FileWriteString(f, "smc_fvg=" + (smc.hasFvg ? DoubleToString(smc.fvgLo, _Digits) + "-" + DoubleToString(smc.fvgHi, _Digits) : "-") + "\r\n");
+   int left = SmcActive() && smcExpiry > 0 ? (int)MathMax(0, (smcExpiry - TimeCurrent()) / PeriodSeconds(InpSmcTfStructure)) : -1;
+   FileWriteString(f, StringFormat("smc_expiry_bars=%d\r\n", left));
+   FileWriteString(f, "smc_missing=" + SmcMissing() + "\r\n");
+   FileWriteString(f, StringFormat("smc_plan=%s\r\n", smcPlanEntry > 0 ? StringFormat("entry %s | SL %s | TP %s | RR %.2f | risk %.2f%%",
+                   DoubleToString(smcPlanEntry, _Digits), DoubleToString(smcPlanSl, _Digits), DoubleToString(smcPlanTp, _Digits), smcPlanRR, smcPlanRiskPct) : "-"));
+}
+
+// On start: last traded setup from the global variable and from the deal history (reconcile).
+void SmcRestore()
+{
+   gvSmcTraded = PFX + "smcTraded_" + _Symbol + "_" + (string)InpMagic;
+   if(MQLInfoInteger(MQL_TESTER))
+      return;
+   if(GlobalVariableCheck(gvSmcTraded))
+      smcLastTraded = (datetime)(long)GlobalVariableGet(gvSmcTraded);
+   if(HistorySelect(TimeCurrent() - 14 * 86400, TimeCurrent() + 60))
+      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+      {
+         ulong d = HistoryDealGetTicket(i);
+         if(d == 0 || HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN || (ulong)HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic)
+            continue;
+         if(StringFind(HistoryDealGetString(d, DEAL_COMMENT), "SMC") == 0)
+         {
+            datetime t = (datetime)HistoryDealGetInteger(d, DEAL_TIME);
+            // the setup's CHoCH happened before the entry: everything up to the entry is consumed
+            if(t > smcLastTraded) smcLastTraded = t;
+         }
+      }
+}
+
+//+------------------------------------------------------------------+
 //| Test button: open a minimum-lot trade and close it seconds later, |
 //| to prove orders really go through. Own magic number, so it never  |
 //| counts as a trade of the day, a loss or a losing streak.          |
@@ -1989,12 +2607,14 @@ void SetPaused(bool p)
 //+------------------------------------------------------------------+
 int MaxTradesEff()
 {
-   return styleRt == STYLE_MULTI ? 0 : InpMaxTradesPerDay;
+   return styleRt == STYLE_ONE ? InpMaxTradesPerDay : 0;   // modes 2 and 3: no daily count (one position at a time)
 }
 
 double RiskPctEff()
 {
-   return styleRt == STYLE_MULTI ? InpMultiRiskPct : riskPctRt;
+   if(styleRt == STYLE_SMC)   return InpSmcRiskPct;
+   if(styleRt == STYLE_MULTI) return InpMultiRiskPct;
+   return riskPctRt;
 }
 
 void SaveStyle()
@@ -2009,6 +2629,8 @@ string StyleLine()
 {
    string size = lotModeRt == LOT_FIXED ? StringFormat("%.2f lot", InpLots)
                                         : StringFormat(L("เสี่ยง %.1f%%", "risk %.1f%%"), RiskPctEff());
+   if(styleRt == STYLE_SMC)
+      return StringFormat(L("โหมด 3: SMC (FVG+CHoCH+OB) | %s", "Mode 3: SMC (FVG+CHoCH+OB) | %s"), size);
    return styleRt == STYLE_MULTI ? StringFormat(L("โหมด 2: หลายไม้ ไม้เล็ก | %s", "Mode 2: several small | %s"), size)
                                  : StringFormat(L("โหมด 1: ไม้ใหญ่ วันละ 1 | %s", "Mode 1: one big a day | %s"), size);
 }
