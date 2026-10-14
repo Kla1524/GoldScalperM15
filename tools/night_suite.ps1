@@ -16,6 +16,9 @@ param(
     [switch]$Now
 )
 $ErrorActionPreference = 'Stop'
+# Only Get-LabSummary is needed from lab.ps1. Dot-source it FIRST: it sets $Term/$Editor for the
+# portable lab terminal, and the values below must win.
+. 'D:\EA_Trade_lab\repo\tools\lab.ps1'
 $Repo   = 'D:\EA_Trade_lab\repo'
 $Term   = 'C:\Program Files\MetaTrader 5\terminal64.exe'
 $Editor = 'C:\Program Files\MetaTrader 5\MetaEditor64.exe'
@@ -27,7 +30,6 @@ $Suite  = "$Repo\reports\experiments\suite_{0:yyyyMMdd}" -f (Get-Date).AddHours(
 New-Item -ItemType Directory -Force $Suite | Out-Null
 $Log = "$Suite\suite.log"
 function Log([string]$m) { $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $m; Add-Content $Log $line; Write-Host $line }
-. "$Repo\tools\lab.ps1"   # for Get-LabSummary
 
 $runs = @(
     @{ Name = 'R0_smc_smoke_1min_2026Q3';     From = '2026.08.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
