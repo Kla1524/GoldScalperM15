@@ -1,0 +1,57 @@
+Run                                       Net    PF    DD% Trades   Win%  AvgTrade    ExpR  MaxLS
+R0_smc_smoke_1min_2026Q3                 0.00     0      0      0    0.0      0.00              0
+R1_regression_mode1_1min_3k           2670.83  1.45  14.79    473   49.0      5.65    0.18      9
+R1n_mode1_news_1min_3k                2134.99  1.39  15.01    442   48.2      4.83   0.171      9
+R2_smc_realticks_3k                     17.87  1.84   1.02      4   50.0      4.47   0.524      2
+R3_orb_0.5pct_realticks_3k             -18.04  0.68      2     11   45.5     -1.64  -0.182      2
+R4_smc_realticks_1k                      5.68     0   0.16      1  100.0      5.68   1.986      0
+R5_smc_realticks_10k                    54.40  1.42   1.68      5   40.0     10.88   0.524      3
+R6_smc_1min_2018_2026_3k               -60.88  0.64   4.06     20   25.0     -3.04  -0.223      8
+R7_orb_0.5pct_1min_2018_2026_3k        233.12  1.19   7.11    229   43.2      1.02   0.121      9
+R8_smc_realticks_3k_randomdelay         17.21  1.76   1.01      4   50.0      4.30   0.591      2
+
+News filter: trades removed (vs no news)
+
+Mode 3 funnel and reasons setups ended
+R0_smc_smoke_1min_2026Q3: detected 18, ready 15, confirmed 6, opened 0
+       5  H1 bias became neutral
+       4  RR # < # after costs
+       3  no FVG within # bars of the CHoCH
+       2  no entry within # M1# bars
+       1  blocked: Mode #: rollover soon - no entries
+       1  M1# closed above the order block
+R2_smc_realticks_3k: detected 162, ready 131, confirmed 40, opened 4
+      37  no entry within # M1# bars
+      36  H1 bias became neutral
+      28  no FVG within # bars of the CHoCH
+      26  RR # < # after costs
+       9  M1# closed below the order block
+       6  M1# closed above the order block
+R4_smc_realticks_1k: detected 162, ready 131, confirmed 40, opened 1
+      37  no entry within # M1# bars
+      36  H1 bias became neutral
+      28  no FVG within # bars of the CHoCH
+      26  RR # < # after costs
+       9  M1# closed below the order block
+       6  M1# closed above the order block
+R5_smc_realticks_10k: detected 162, ready 131, confirmed 40, opened 5
+      37  no entry within # M1# bars
+      36  H1 bias became neutral
+      28  no FVG within # bars of the CHoCH
+      26  RR # < # after costs
+       9  M1# closed below the order block
+       6  M1# closed above the order block
+R6_smc_1min_2018_2026_3k: detected 820, ready 649, confirmed 199, opened 20
+     219  H1 bias became neutral
+     154  no FVG within # bars of the CHoCH
+     141  no entry within # M1# bars
+     111  RR # < # after costs
+      40  opposite CHoCH
+      34  target zone #-# is at or behind the entry - no room
+R8_smc_realticks_3k_randomdelay: detected 162, ready 131, confirmed 40, opened 4
+      37  no entry within # M1# bars
+      36  H1 bias became neutral
+      28  no FVG within # bars of the CHoCH
+      26  RR # < # after costs
+       9  M1# closed below the order block
+       6  M1# closed above the order block

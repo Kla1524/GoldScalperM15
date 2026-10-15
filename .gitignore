@@ -11,3 +11,6 @@ reports/
 reports/*
 !reports/experiments/
 !reports/NIGHT_REPORT.md
+
+__pycache__/
+*.pyc
