@@ -1,7 +1,11 @@
 ﻿# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
 # start after the daily close, run one backtest at a time, restart MT5 at the end.
+# The main terminal is the portable MT5 in D:\MT5_GoldScalper (started with /portable).
 #
-#   powershell -ExecutionPolicy Bypass -File tools\night_suite.ps1 -StartAt '00:15' -StopAt '07:30'
+# Start it from your own Windows session (double-click), so it sees the live EA's status file:
+#   tools\Run-Backtests-Now.cmd        weekend / market closed: start at once
+#   tools\Run-Backtests-Tonight.cmd    weekday: wait until 00:15, no new run after 07:30
+# or: powershell -ExecutionPolicy Bypass -File tools\night_suite.ps1 -StartAt '00:15' -StopAt '07:30' [-Now]
 #
 # Safety:
 #  - waits for StartAt; refuses to stop MT5 while this EA has an open position (status file);
@@ -20,11 +24,12 @@ $ErrorActionPreference = 'Stop'
 # portable lab terminal, and the values below must win.
 . 'D:\EA_Trade_lab\repo\tools\lab.ps1'
 $Repo   = 'D:\EA_Trade_lab\repo'
-$Term   = 'C:\Program Files\MetaTrader 5\terminal64.exe'
-$Editor = 'C:\Program Files\MetaTrader 5\MetaEditor64.exe'
-$Data   = "$env:APPDATA\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075"
+$Mt5    = 'D:\MT5_GoldScalper'               # portable: program and data in one folder
+$Term   = "$Mt5\terminal64.exe"
+$Editor = "$Mt5\MetaEditor64.exe"
+$Data   = $Mt5
 $Common = "$env:APPDATA\MetaQuotes\Terminal\Common\Files"
-$Agents = "$env:APPDATA\MetaQuotes\Tester\D0E8209F77C8CF37AD8BF550E51FF075"
+$Agents = "$Mt5\Tester"
 $StopFile = 'D:\EA_Trade_lab\STOP'
 $Suite  = "$Repo\reports\experiments\suite_{0:yyyyMMdd}" -f (Get-Date).AddHours(6)
 New-Item -ItemType Directory -Force $Suite | Out-Null
@@ -88,7 +93,7 @@ ShutdownTerminal=1
 "@ | Set-Content $ini -Encoding Unicode
     foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { [IO.File]::Delete("$Common\$j") } }
     $start = Get-Date
-    $p = Start-Process $Term -ArgumentList "/config:`"$ini`"" -PassThru
+    $p = Start-Process $Term -ArgumentList '/portable', "/config:`"$ini`"" -WorkingDirectory $Mt5 -PassThru
     $timeout = if ($r.Model -eq 4) { 120 } else { 75 }
     if (-not $p.WaitForExit($timeout * 60000)) { try { $p.Kill() } catch {}; throw "timeout after $timeout min" }
     $htm = "$Data\reports\night_$($r.Name).htm"
@@ -112,6 +117,14 @@ try {
     if (-not $Now) { Wait-Until $StartAt }
     $stopTime = [datetime]::ParseExact($StopAt, 'HH:mm', $null); if ($stopTime -lt (Get-Date)) { $stopTime = $stopTime.AddDays(1) }
 
+    # The status file must be live: a copy that is not updating (MT5 not running, or this script
+    # started where it cannot see MT5's files) cannot tell whether a position is open.
+    if (Get-MainTerminal) {
+        $sf = "$Common\GS15_GOLD_20261013_status.txt"
+        $age = if (Test-Path $sf) { ((Get-Date) - (Get-Item $sf).LastWriteTime).TotalMinutes } else { 999 }
+        if ($age -gt 3) { throw ("EA status file is {0:N0} min old - cannot check for open positions; start the suite with tools\Run-Backtests-*.cmd" -f $age) }
+    }
+
     # Do not stop MT5 while this EA holds a position.
     for ($i = 0; $i -lt 60; $i++) {
         $st = Get-Content "$Common\GS15_GOLD_20261013_status.txt" -Encoding Unicode -ErrorAction SilentlyContinue
@@ -130,7 +143,8 @@ try {
 
     # Compile the experimental source into the tester slot (Experts\MyEA\Dev), not the live EA.
     $clog = "$Suite\compile.log"
-    Start-Process $Editor -ArgumentList "/compile:`"$Repo\GoldScalperM15.mq5`"", "/include:`"$Data\MQL5`"", "/log:`"$clog`"" -Wait
+    New-Item -ItemType Directory -Force "$Data\MQL5\Experts\MyEA\Dev" | Out-Null
+    Start-Process $Editor -ArgumentList '/portable', "/compile:`"$Repo\GoldScalperM15.mq5`"", "/include:`"$Data\MQL5`"", "/log:`"$clog`"" -Wait
     $res = Get-Content $clog -Encoding Unicode | Select-String 'Result:' | Select-Object -Last 1
     Log "compile: $res"
     if (-not (Test-Path "$Repo\GoldScalperM15.ex5")) { throw 'compile failed' }
@@ -148,7 +162,7 @@ try {
 } finally {
     if ($stopped -or -not (Get-MainTerminal)) {
         Log 'starting MT5 again (demo terminal)'
-        Start-Process $Term
+        Start-Process $Term -ArgumentList '/portable' -WorkingDirectory $Mt5
     }
     Log 'suite finished'
     Set-Content "$Suite\DONE" (Get-Date).ToString('s')

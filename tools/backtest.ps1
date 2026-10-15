@@ -6,9 +6,9 @@
 # Results are appended to D:\EA_Trade\reports\results.csv; full reports go to reports\runs\.
 
 $script:Root    = 'D:\EA_Trade'
-$script:Data    = "$env:APPDATA\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075"
-$script:Term    = 'C:\Program Files\MetaTrader 5\terminal64.exe'
-$script:Editor  = 'C:\Program Files\MetaTrader 5\MetaEditor64.exe'
+$script:Data    = 'D:\MT5_GoldScalper'                  # portable MT5: program and data in one folder
+$script:Term    = "$script:Data\terminal64.exe"
+$script:Editor  = "$script:Data\MetaEditor64.exe"
 $script:DevDir  = "$script:Data\MQL5\Experts\MyEA\Dev"
 $script:RunsDir = "$script:Root\reports\runs"
 
@@ -18,7 +18,7 @@ function Build-Dev {
     $log = "$script:Root\reports\compile.log"
     New-Item -ItemType Directory -Force "$script:Root\reports", $script:DevDir | Out-Null
     if (Test-Path $ex5) { Remove-Item $ex5 }
-    Start-Process $script:Editor -ArgumentList "/compile:`"$src`"", "/include:`"$script:Data\MQL5`"", "/log:`"$log`"" -Wait
+    Start-Process $script:Editor -ArgumentList '/portable', "/compile:`"$src`"", "/include:`"$script:Data\MQL5`"", "/log:`"$log`"" -Wait
     $result = (Get-Content $log -Encoding Unicode | Where-Object { $_ -match 'error|warning' -and $_ -notmatch 'information' })
     $result
     if (-not (Test-Path $ex5)) { throw 'compile failed' }
@@ -70,7 +70,7 @@ ShutdownTerminal=1
 "@ | Set-Content $ini -Encoding Unicode
 
     Get-ChildItem "$script:Data\reports" -Filter "bt_$Name.*" -ErrorAction SilentlyContinue | Remove-Item
-    $proc = Start-Process $script:Term -ArgumentList "/config:`"$ini`"" -PassThru
+    $proc = Start-Process $script:Term -ArgumentList '/portable', "/config:`"$ini`"" -WorkingDirectory $script:Data -PassThru
     if (-not $proc.WaitForExit($TimeoutMin * 60 * 1000)) {
         [void]$proc.CloseMainWindow(); Start-Sleep 15; if (-not $proc.HasExited) { $proc.Kill() }
         throw "timeout: $Name"
@@ -137,7 +137,7 @@ ShutdownTerminal=1
 "@ | Set-Content $ini -Encoding Unicode
 
     Get-ChildItem "$script:Data\reports" -Filter "opt_$Name*" -ErrorAction SilentlyContinue | Remove-Item
-    $proc = Start-Process $script:Term -ArgumentList "/config:`"$ini`"" -PassThru
+    $proc = Start-Process $script:Term -ArgumentList '/portable', "/config:`"$ini`"" -WorkingDirectory $script:Data -PassThru
     if (-not $proc.WaitForExit($TimeoutMin * 60 * 1000)) {
         [void]$proc.CloseMainWindow(); Start-Sleep 15; if (-not $proc.HasExited) { $proc.Kill() }
         throw "timeout: $Name"
