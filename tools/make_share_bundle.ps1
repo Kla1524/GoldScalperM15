@@ -9,6 +9,8 @@ param(
     [string[]]$Mask = @()                              # extra literal strings to remove (e.g. an account number)
 )
 $ErrorActionPreference = 'Stop'
+$Suite = @($Suite | ForEach-Object { $_ -split ',' } | Where-Object { $_ })   # -File passes a list as one string
+$Mask  = @($Mask  | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $out = Join-Path $OutRoot $Name
 if (Test-Path $out) { throw "$out exists - choose another name" }
 New-Item -ItemType Directory -Force "$out\src", "$out\presets", "$out\docs", "$out\results" | Out-Null
