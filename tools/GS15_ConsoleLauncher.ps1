@@ -16,9 +16,20 @@ $console = Join-Path $Root 'tools\GS15_Console.ps1'
 $ps = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $wt = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\wt.exe'
 
-# One launcher at a time.
+# One launcher at a time. If the running one has stopped writing its heartbeat (hung), replace it.
 $mutex = New-Object Threading.Mutex($false, 'Local\GS15ConsoleLauncher')
-if (-not $mutex.WaitOne(0)) { exit }
+$got = $false
+try { $got = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $got = $true }
+if (-not $got) {
+    $age = 999
+    try { $age = ((Get-Date) - (Get-Item $state -ErrorAction Stop).LastWriteTime).TotalSeconds } catch {}
+    if ($age -lt 30) { exit }
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'GS15_ConsoleLauncher\.ps1' -and $_.ProcessId -ne $PID } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    try { $got = $mutex.WaitOne(5000) } catch [Threading.AbandonedMutexException] { $got = $true }
+    if (-not $got) { exit }
+}
 
 $pidFile = "$files\GS15_console_pid.txt"
 

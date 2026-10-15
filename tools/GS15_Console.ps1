@@ -653,6 +653,11 @@ $oldTitle = ''
 $pidFile = Join-Path $Dir 'GS15_console_pid.txt'   # lets the launcher (chart button) find and close this window
 try {
     try { [IO.File]::WriteAllText($pidFile, "$PID", [Text.Encoding]::ASCII) } catch {}
+    # (Re)start the chart-button launcher; it exits at once if a healthy one is running.
+    $launcher = Join-Path $PSScriptRoot 'GS15_ConsoleLauncher.ps1'
+    if (Test-Path $launcher) {
+        try { Start-Process powershell -WindowStyle Hidden -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -Root `"$(Split-Path $PSScriptRoot -Parent)`"" } catch {}
+    }
     try { $oldTitle = $Host.UI.RawUI.WindowTitle; $Host.UI.RawUI.WindowTitle = 'GoldScalper console' } catch {}
     try { [Console]::CursorVisible = $false } catch {}
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
