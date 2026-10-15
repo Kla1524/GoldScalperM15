@@ -184,6 +184,8 @@ input bool   InpQuickTestReal   = false; // Allow the Test button on a REAL acco
 input group "=== Loss diagnosis ==="
 input int    InpLossCooldownMin = 20;   // Pause after a losing trade (minutes, 0 = off)
 input bool   InpJournal         = true; // Log every trade + loss reasons to CSV (Common\Files)
+input int    InpTesterHaltDays  = 0;     // Tester only: after a risk-guard halt, 0 = count and carry on, N = stay paused N days then resume (simulated review), -1 = stay paused to the end
+input double InpTesterSpreadMult = 1.0;  // Tester only: spread stress - the spread filter sees spread x this, and (x - 1) x spread is charged per entry
 input bool   InpProbeLog        = false; // Research: log signals skipped because a position is open (modes 1/2) and every mode-3 confirmation, with MFE/MAE after 4/8/16/32 M15 bars - no trades
 input int    InpMinConfidence   = 1;    // Min confidence score 0-4 (D1 trend, H1 trend, ADX 20-30, strong RSI; 0 = off)
 
@@ -237,6 +239,9 @@ double   equityPeak      = 0;
 int      lossStreak      = 0;
 int      haltCode        = 0;
 int      testerHalts[3]  = {0, 0, 0};   // tester: how often each halt would have fired
+datetime testerResumeAt  = 0;           // tester (InpTesterHaltDays > 0): simulated Resume time
+double   testerHaltDays  = 0;           // tester: days spent halted
+double   testerExtraCost = 0;           // tester (InpTesterSpreadMult > 1): extra spread charged
 ENUM_TRADE_STYLE styleRt = STYLE_ONE;   // mode in effect (input, or chosen with the panel buttons)
 string   gvStyle         = "";
 string   gvStyleIn       = "";          // the input value when the mode was chosen
@@ -388,6 +393,8 @@ int OnInit()
       FileDelete(JournalName(), FILE_COMMON);
    if(InpProbeLog && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
       FileDelete(ProbeFileName(), FILE_COMMON);
+   if(MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
+      FileDelete(StringFormat("GS15_stress_%s_%I64u_tester.csv", _Symbol, InpMagic), FILE_COMMON);
 
    newsExportPending = true;   // refresh the news history file shortly after start (live only)
    EventSetTimer(1);
@@ -402,8 +409,18 @@ void OnDeinit(const int reason)
 {
    EventKillTimer();
    if(MQLInfoInteger(MQL_TESTER) && (InpMaxDDPct > 0 || InpMaxLossStreak > 0))
-      PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s) "
-                  "(live trading pauses until you resume; the tester carries on)", testerHalts[1], testerHalts[2]);
+   {
+      if(InpTesterHaltDays == 0)
+         PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s) "
+                     "(live trading pauses until you resume; the tester carries on)", testerHalts[1], testerHalts[2]);
+      else
+         PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s), paused like live "
+                     "(resume after %d days; -1 = never), %s at the end", testerHalts[1], testerHalts[2], InpTesterHaltDays,
+                     paused ? "still paused" : "trading");
+   }
+   if(MQLInfoInteger(MQL_TESTER) && InpTesterSpreadMult != 1.0)
+      PrintFormat("Risk guards in this test: spread stress x%.2f, extra spread charged %.2f %s", InpTesterSpreadMult,
+                  testerExtraCost, AccountInfoString(ACCOUNT_CURRENCY));
    ObjectsDeleteAll(0, PFX);
    IndicatorRelease(hFast);
    IndicatorRelease(hSlow);
@@ -510,6 +527,14 @@ void OnTick()
 {
    if(InpProbeLog)
       ProbesOnTick();
+   if(testerResumeAt > 0 && TimeCurrent() >= testerResumeAt)
+   {
+      // Tester, InpTesterHaltDays > 0: the simulated person reviews and presses Resume.
+      testerHaltDays += InpTesterHaltDays;
+      testerResumeAt = 0;
+      Print("Risk guard: simulated Resume");
+      SetPaused(false);
+   }
    ManagePositions();
    UpdatePeak();
 
@@ -1127,6 +1152,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    if(ok)
    {
       CaptureEntry(isBuy ? 1 : -1, trade.ResultPrice() > 0 ? trade.ResultPrice() : price, sl, atr, lots);
+      TesterSpreadCharge(lots);
       string openMsg = StringFormat(L("เปิด %s %.2f lot @ %s | SL %s | TP %s | เสี่ยง %.2f %s (%.2f%% ของ Equity)", "Opened %s %.2f lot @ %s | SL %s | TP %s | risk %.2f %s (%.2f%% of equity)"), side, lots,
                                     DoubleToString(trade.ResultPrice() > 0 ? trade.ResultPrice() : price, _Digits),
                                     DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
@@ -2070,7 +2096,35 @@ bool VolatilityOK()
 bool SpreadOK()
 {
    double spread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(MQLInfoInteger(MQL_TESTER))
+      spread *= InpTesterSpreadMult;   // spread stress (1.0 = real spread)
    return spread <= InpMaxSpread;
+}
+
+// Tester spread stress: charge the extra (mult - 1) x spread of this entry as a withdrawal, so the
+// balance, the position sizes that follow and the final result include it. One row per entry in
+// Common\Files\GS15_stress_<symbol>_<magic>_tester.csv for the per-trade analysis.
+void TesterSpreadCharge(double lots)
+{
+   if(!MQLInfoInteger(MQL_TESTER) || InpTesterSpreadMult <= 1.0 || lots <= 0)
+      return;
+   double spread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double cost = LossPerLot((InpTesterSpreadMult - 1.0) * spread) * lots;
+   if(cost <= 0)
+      return;
+   TesterWithdrawal(cost);
+   testerExtraCost += cost;
+   string name = StringFormat("GS15_stress_%s_%I64u_tester.csv", _Symbol, InpMagic);
+   bool exists = FileIsExist(name, FILE_COMMON);
+   int f = FileOpen(name, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(f == INVALID_HANDLE)
+      return;
+   if(!exists)
+      FileWriteString(f, "time,lots,spread,extra_cost\r\n");
+   FileSeek(f, 0, SEEK_END);
+   FileWriteString(f, StringFormat("%s,%.2f,%s,%.2f\r\n", TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES), lots,
+                                   DoubleToString(spread, _Digits), cost));
+   FileClose(f);
 }
 
 // Trades opened today and P/L today (closed deals + floating) for this EA.
@@ -2899,10 +2953,23 @@ void Halt(int code, string why)
 {
    if(MQLInfoInteger(MQL_TESTER))
    {
-      // No one can press Resume in a backtest: count it, reset and carry on.
+      if(InpTesterHaltDays == 0)
+      {
+         // No one can press Resume in a backtest: count it, reset and carry on.
+         testerHalts[code]++;
+         Print("Risk guard would halt here: ", why);
+         ResetGuards();
+         return;
+      }
+      // Like live: pause; a person resumes after InpTesterHaltDays (an assumption), or never (-1).
+      if(paused)
+         return;
       testerHalts[code]++;
-      Print("Risk guard would halt here: ", why);
-      ResetGuards();
+      SetPaused(true);
+      haltCode = code;
+      testerResumeAt = InpTesterHaltDays > 0 ? TimeCurrent() + InpTesterHaltDays * 86400 : 0;
+      Print("Risk guard halts here (tester, like live): ", why,
+            InpTesterHaltDays > 0 ? StringFormat(" - simulated Resume after %d days", InpTesterHaltDays) : " - paused to the end of the test");
       return;
    }
    if(paused)
