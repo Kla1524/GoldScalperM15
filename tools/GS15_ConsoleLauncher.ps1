@@ -5,7 +5,7 @@
 # No DLL imports in the EA: the EA only writes a file.
 # Install / start: tools\Install-ConsoleLauncher.ps1. Stop: end "powershell" with this script in Task Manager,
 # or create Common\Files\GS15_console_launcher_stop.txt.
-param([string]$Root = (Split-Path $PSScriptRoot -Parent))
+param([string]$Root = (Split-Path $PSScriptRoot -Parent), [switch]$Direct)   # -Direct: plain PowerShell window, not Windows Terminal
 
 $ErrorActionPreference = 'Continue'
 $files   = "$env:APPDATA\MetaQuotes\Terminal\Common\Files"
@@ -51,7 +51,7 @@ function Get-AllConsolePids {
 }
 
 function Open-Console {
-    if (Test-Path $wt) {
+    if (-not $Direct -and (Test-Path $wt)) {
         Start-Process $wt -ArgumentList "-w new --size 74,48 --title `"GoldScalper console`" `"$ps`" -NoProfile -ExecutionPolicy Bypass -File `"$console`""
     } else {
         Start-Process $ps -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$console`""
