@@ -81,7 +81,7 @@ def mode3_r(run_dir):
 
 def norm_reason(s):
     s = re.sub(r'\s*\(target.*$', '', s)   # the CSV row is cut at the comma inside '(target x, stop y)'
-    s = re.sub(r'(?<![A-Za-z])\d+(\.\d+)?', '#', s)   # keep H1 / M15 / M5
+    s = re.sub(r'(?<![A-Za-z0-9.])\d+(\.\d+)?', '#', s)   # keep H1 / M15 / M5
     return re.sub(r'\s+', ' ', s).strip()
 
 

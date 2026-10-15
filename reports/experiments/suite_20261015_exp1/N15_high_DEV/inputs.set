@@ -1,0 +1,6 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpNewsMinsBefore=15
+InpNewsMinsAfter=15
+InpRiskPct=0.5
