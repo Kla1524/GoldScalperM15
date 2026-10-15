@@ -138,6 +138,7 @@ input string InpNewsCurrencies   = "USD";  // Currencies to watch (comma separat
 input bool   InpNewsHighOnly     = true;   // true = high impact only, false = medium + high
 input int    InpNewsMinsBefore   = 30;     // No new trades before the event (minutes)
 input int    InpNewsMinsAfter    = 30;     // No new trades after the event (minutes)
+input string InpNewsOnlyEvents   = "";     // Only these events ("" = all of the chosen impact), comma separated parts of the name, e.g. Nonfarm Payrolls,CPI,FOMC,Fed Interest Rate Decision
 input bool   InpNewsClosePos     = false;  // Close open trades when a news window starts
 input bool   InpNewsInTester     = true;   // Strategy Tester: apply the filter from the exported news file
 input string InpNewsFile         = "";     // News history file in Common\Files ("" = GS15_news_<currencies>.csv)
@@ -1684,7 +1685,7 @@ bool NewsBlackout()
       for(int i = 0; i < ArraySize(vals); i++)
       {
          MqlCalendarEvent ev;
-         if(!CalendarEventById(vals[i].event_id, ev) || ev.importance < minImp)
+         if(!CalendarEventById(vals[i].event_id, ev) || ev.importance < minImp || !NewsEventWanted(ev.name))
             continue;
 
          datetime t = vals[i].time;
@@ -1730,6 +1731,26 @@ string NewsFileName()
    StringReplace(n, ",", "_");
    StringReplace(n, " ", "");
    return n;
+}
+
+// InpNewsOnlyEvents: true when the list is empty or a part of it occurs in the event name (any case).
+bool NewsEventWanted(string name)
+{
+   if(InpNewsOnlyEvents == "")
+      return true;
+   string parts[];
+   int n = StringSplit(InpNewsOnlyEvents, ',', parts);
+   StringToLower(name);
+   for(int i = 0; i < n; i++)
+   {
+      string p = parts[i];
+      StringTrimLeft(p);
+      StringTrimRight(p);
+      StringToLower(p);
+      if(p != "" && StringFind(name, p) >= 0)
+         return true;
+   }
+   return false;
 }
 
 // Writes every moderate/high event of InpNewsCurrencies from Dec 2017 to 3 weeks ahead, with
@@ -1857,14 +1878,16 @@ bool NewsBlackoutFromFile()
          if(StringSplit(FileReadString(f), ',', parts) < 4) continue;
          if((int)StringToInteger(parts[2]) < minImp) continue;
          if(StringFind("," + InpNewsCurrencies + ",", "," + parts[1] + ",") < 0) continue;
+         if(!NewsEventWanted(parts[3])) continue;
          ArrayResize(newsFileT, n + 1, 4096);
          datetime t = StringToTime(parts[0]);
          newsFileT[n++] = gmt ? NewsGmtToServer(t) : t;
       }
       FileClose(f);
       ArraySort(newsFileT);
-      PrintFormat("News filter in the tester: %d events from %s (%s to %s)", n, NewsFileName(),
-                  n > 0 ? TimeToString(newsFileT[0], TIME_DATE) : "-", n > 0 ? TimeToString(newsFileT[n - 1], TIME_DATE) : "-");
+      PrintFormat("News filter in the tester: %d events from %s (%s to %s)%s", n, NewsFileName(),
+                  n > 0 ? TimeToString(newsFileT[0], TIME_DATE) : "-", n > 0 ? TimeToString(newsFileT[n - 1], TIME_DATE) : "-",
+                  InpNewsOnlyEvents == "" ? "" : ", only: " + InpNewsOnlyEvents);
    }
    int n = ArraySize(newsFileT);
    if(n == 0)
