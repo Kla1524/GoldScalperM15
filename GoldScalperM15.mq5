@@ -71,6 +71,7 @@ input int    InpSmcAtrPeriod      = 14;    // [SMC] ATR period (all SMC timefram
 input int    InpSmcPivotLeft      = 2;     // [SMC] swing pivot: bars to the left
 input int    InpSmcPivotRight     = 2;     // [SMC] swing pivot: bars to the right (confirmation delay)
 input bool   InpSmcBiasFilter     = true;  // [SMC] trade only in the H1 bias direction (skip neutral)
+input bool   InpSmcBiasLoose      = false; // [SMC] H1 bias: BUY needs a higher high OR a higher low (SELL mirrored) instead of both
 input int    InpSmcSRLookback     = 100;   // [SMC] H1 bars used for support/resistance swings
 input double InpSmcSRTolAtr       = 0.2;   // [SMC] merge S/R levels within x H1 ATR
 input double InpSmcBreakBufAtr    = 0.1;   // [SMC] CHoCH close must clear the swing by x M15 ATR
@@ -2178,6 +2179,9 @@ ulong          smcPosId      = 0;
 bool           smcInit       = false;
 datetime       smcLastH1     = 0, smcLastM15 = 0, smcLastM5 = 0;
 int            smcBias       = 0;
+bool           smcAllowBuy   = false;   // H1 structure allows a BUY / a SELL (strict or loose bias rule)
+bool           smcAllowSell  = false;
+bool SmcDirAllowed(int dir) { return dir > 0 ? smcAllowBuy : smcAllowSell; }
 SmcZone        smcZones[];
 double         smcAtrH1      = 0, smcAtrM15 = 0;
 datetime       smcLastSwingUsed[2] = {0, 0};   // [0] bull, [1] bear: one CHoCH per swing
@@ -2349,12 +2353,17 @@ void SmcUpdateH1()
    int n = ArraySize(r);
    SmcSwing s[];
    SmcCollectSwings(r, n - 1, InpSmcPivotLeft, InpSmcPivotRight, PeriodSeconds(InpSmcTfBias), s);
-   int prevBias = smcBias;
-   smcBias  = SmcBias(s);
+   int  prevBias  = smcBias;
+   bool prevAllow = SmcActive() && SmcDirAllowed(smc.dir);
+   smcBias      = SmcBias(s);
+   smcAllowBuy  = SmcBiasAllows(s, 1, InpSmcBiasLoose);
+   smcAllowSell = SmcBiasAllows(s, -1, InpSmcBiasLoose);
    smcAtrH1 = a[n - 1];
    SmcBuildZones(s, InpSmcSRTolAtr * smcAtrH1, smcZones);
-   if(InpSmcBiasFilter && SmcActive() && smcBias != smc.dir && prevBias != smcBias)
-      SmcEnd(SMC_INVALIDATED, smcBias == 0 ? "H1 bias became neutral" : "H1 bias flipped");
+   // Strict: SmcDirAllowed(dir) is (smcBias == dir), so this is the original rule.
+   if(InpSmcBiasFilter && SmcActive() && !SmcDirAllowed(smc.dir) && (InpSmcBiasLoose ? prevAllow : prevBias != smcBias))
+      SmcEnd(SMC_INVALIDATED, InpSmcBiasLoose ? StringFormat("H1 structure no longer allows a %s (loose bias)", smc.dir > 0 ? "BUY" : "SELL")
+                                              : smcBias == 0 ? "H1 bias became neutral" : "H1 bias flipped");
 }
 
 void SmcUpdateStructure()
@@ -2407,7 +2416,7 @@ void SmcUpdateStructure()
    if(SmcActive() && smc.dir != dir)
       SmcEnd(SMC_INVALIDATED, "opposite CHoCH");
    string tag = StringFormat("%s %s CHoCH %s", _Symbol, dir > 0 ? "bullish" : "bearish", TimeToString(r[m].time, TIME_DATE | TIME_MINUTES));
-   if(InpSmcBiasFilter && smcBias != dir)
+   if(InpSmcBiasFilter && !SmcDirAllowed(dir))
    {
       ConsoleLog("SKIP", tag + StringFormat(" ignored: H1 bias is %s", smcBias > 0 ? "bullish" : smcBias < 0 ? "bearish" : "neutral"));
       return;
@@ -2676,7 +2685,8 @@ void SmcDraw()
 // What the current setup still needs, in plain words.
 string SmcMissing()
 {
-   if(InpSmcBiasFilter && smcBias == 0) return "H1 bias is neutral - waiting for HH+HL or LH+LL";
+   if(InpSmcBiasFilter && !smcAllowBuy && !smcAllowSell)
+      return InpSmcBiasLoose ? "H1 structure allows neither side - waiting for a HH/HL or LH/LL" : "H1 bias is neutral - waiting for HH+HL or LH+LL";
    if(!SmcActive() && smcState != SMC_SUBMITTED) return StringFormat("waiting for a %s CHoCH on %s",
                                       smcBias > 0 ? "bullish" : smcBias < 0 ? "bearish" : "", StringSubstr(EnumToString(InpSmcTfStructure), 7));
    return smcNote;

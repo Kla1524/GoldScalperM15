@@ -111,6 +111,17 @@ int SmcBias(const SmcSwing &s[])
    return 0;
 }
 
+// May a trade in direction dir be taken? Strict: the bias must equal dir (HH and HL for a BUY).
+// Loose: a BUY needs a higher high OR a higher low, a SELL a lower high OR a lower low.
+bool SmcBiasAllows(const SmcSwing &s[], int dir, bool loose)
+{
+   if(!loose) return SmcBias(s) == dir;
+   SmcSwing h1, h0, l1, l0;
+   bool twoH = SmcLastTwo(s, 1, h1, h0), twoL = SmcLastTwo(s, -1, l1, l0);
+   if(dir > 0) return (twoH && h1.price > h0.price) || (twoL && l1.price > l0.price);
+   return (twoH && h1.price < h0.price) || (twoL && l1.price < l0.price);
+}
+
 //--- support / resistance ---------------------------------------------
 // Merge swing levels (highs and lows) that lie within tol of each other into zones, sorted low->high.
 int SmcBuildZones(const SmcSwing &s[], double tol, SmcZone &z[])

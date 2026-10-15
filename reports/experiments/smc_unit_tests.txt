@@ -5,6 +5,11 @@ PASS  4 confirmed swings in the case (got 4)
 PASS  lower highs + lower lows -> bearish bias
 PASS  equal highs: the earlier bar is the pivot, the later is not
 PASS  higher high + lower low -> neutral
+PASS  strict: HH + LL allows neither side
+PASS  loose: HH allows a BUY, LL allows a SELL
+PASS  LH + HL: loose allows a BUY (HL), strict does not
+PASS  LH + HL: loose allows a SELL (LH), strict does not
+PASS  LH + LL: SELL only, strict and loose
 PASS  tolerance 0.5: four separate levels
 PASS  tolerance 5: zones 96-100 and 106-110
 PASS  nearest resistance above 102 is 106-110
@@ -41,4 +46,4 @@ PASS  mirror: no repeated bearish CHoCH
 PASS  mirror: OB = last bullish candle (bar 11)
 PASS  bearish FVG: High(C) 97.5 to Low(A) 101
 PASS  mirror: touches 101-103, bearish, closes below 101: confirmed
-SMC tests: 43 passed, 0 failed
+SMC tests: 48 passed, 0 failed

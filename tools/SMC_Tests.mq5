@@ -94,6 +94,15 @@ void OnStart()
    mix[0].type = 1; mix[0].price = 110; mix[1].type = -1; mix[1].price = 100;
    mix[2].type = 1; mix[2].price = 112; mix[3].type = -1; mix[3].price = 98;
    Check(SmcBias(mix) == 0, "higher high + lower low -> neutral");
+   Check(!SmcBiasAllows(mix, 1, false) && !SmcBiasAllows(mix, -1, false), "strict: HH + LL allows neither side");
+   Check(SmcBiasAllows(mix, 1, true) && SmcBiasAllows(mix, -1, true), "loose: HH allows a BUY, LL allows a SELL");
+   SmcSwing hl[];
+   ArrayResize(hl, 4);
+   hl[0].type = 1; hl[0].price = 110; hl[1].type = -1; hl[1].price = 100;
+   hl[2].type = 1; hl[2].price = 108; hl[3].type = -1; hl[3].price = 102;
+   Check(SmcBiasAllows(hl, 1, true) && !SmcBiasAllows(hl, 1, false), "LH + HL: loose allows a BUY (HL), strict does not");
+   Check(SmcBiasAllows(hl, -1, true) && !SmcBiasAllows(hl, -1, false), "LH + HL: loose allows a SELL (LH), strict does not");
+   Check(SmcBiasAllows(s, -1, false) && SmcBiasAllows(s, -1, true) && !SmcBiasAllows(s, 1, true), "LH + LL: SELL only, strict and loose");
 
    //--- zones
    SmcZone z[], zz;
