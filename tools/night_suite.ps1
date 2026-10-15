@@ -11,20 +11,23 @@
 #  - waits for StartAt; refuses to stop MT5 while this EA has an open position (status file);
 #  - STOP file (D:\EA_Trade_lab\STOP) ends the suite before the next run;
 #  - no new run after StopAt; each run has a timeout;
-#  - MT5 is always started again at the end (finally block), even after an error.
+#  - MT5 is always started again at the end (finally block), even after an error (not with -NoRestart).
+#  - Test-only copy, while the live MT5 keeps trading: -Terminal D:\MT5_Tester -NoRestart -Now
 # Output: reports\experiments\suite_<date>\<run>\ (ini, inputs, report.htm, deals.csv, journals, tester log)
 #         reports\experiments\suite_<date>\summary.csv and suite.log; DONE file when finished.
 param(
     [string]$StartAt = '00:15',
     [string]$StopAt  = '07:30',
-    [switch]$Now
+    [switch]$Now,
+    [string]$Terminal = 'D:\MT5_GoldScalper',   # portable MT5 to test on; e.g. D:\MT5_Tester (a copy with no EA on its charts)
+    [switch]$NoRestart                        # do not start the terminal again at the end (use with a test-only copy)
 )
 $ErrorActionPreference = 'Stop'
 # Only Get-LabSummary is needed from lab.ps1. Dot-source it FIRST: it sets $Term/$Editor for the
 # portable lab terminal, and the values below must win.
 . 'D:\EA_Trade_lab\repo\tools\lab.ps1'
 $Repo   = 'D:\EA_Trade_lab\repo'
-$Mt5    = 'D:\MT5_GoldScalper'               # portable: program and data in one folder
+$Mt5    = $Terminal                         # portable: program and data in one folder
 $Term   = "$Mt5\terminal64.exe"
 $Editor = "$Mt5\MetaEditor64.exe"
 $Data   = $Mt5
@@ -33,8 +36,15 @@ $Agents = "$Mt5\Tester"
 $StopFile = 'D:\EA_Trade_lab\STOP'
 $Suite  = "$Repo\reports\experiments\suite_{0:yyyyMMdd}" -f (Get-Date).AddHours(6)
 New-Item -ItemType Directory -Force $Suite | Out-Null
+New-Item -ItemType Directory -Force "$Terminal\reports" | Out-Null   # MT5 does not create the report folder itself
 $Log = "$Suite\suite.log"
-function Log([string]$m) { $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $m; Add-Content $Log $line; Write-Host $line }
+function Log([string]$m) {
+    $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $m
+    Write-Host $line
+    # Someone may be reading the log (a viewer, a monitor): retry, and never let logging stop the suite.
+    for ($i = 0; $i -lt 20; $i++) { try { [IO.File]::AppendAllText($Log, "$line
+"); return } catch { Start-Sleep -Milliseconds 250 } }
+}
 
 $runs = @(
     @{ Name = 'R0_smc_smoke_1min_2026Q3';     From = '2026.08.01'; To = '2026.10.12'; Model = 1; Deposit = 3000;  Delay = 0;  Inputs = @{ InpTradeStyle = 3 } },
@@ -160,7 +170,7 @@ try {
 } catch {
     Log "suite error: $($_.Exception.Message)"
 } finally {
-    if ($stopped -or -not (Get-MainTerminal)) {
+    if (-not $NoRestart -and ($stopped -or -not (Get-MainTerminal))) {
         Log 'starting MT5 again (demo terminal)'
         Start-Process $Term -ArgumentList '/portable' -WorkingDirectory $Mt5
     }
