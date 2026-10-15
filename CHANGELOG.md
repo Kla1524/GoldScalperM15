@@ -2,6 +2,19 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.43 — News filter in the Strategy Tester, chart Console button, headlines
+- **News filter in backtests:** the MT5 calendar is not available in the Strategy Tester, so backtests used to include trades taken around news.
+  - The live EA now exports the USD calendar history (moderate + high impact, Dec 2017 to 3 weeks ahead) to `Common\Files\GS15_news_USD.csv`: once at start and then daily, when the file is older than a day. The `NEWSEXPORT` console command forces it.
+  - Times are stored in **GMT**. `CalendarValueHistory` reports every past event with *today's* server offset, which puts winter events one hour late; the export removes that offset and the tester adds the right one back per event with the US daylight-saving rule (`InpNewsServerUSDST`; XM is GMT+2 in winter, GMT+3 in summer). Checked: NFP 9 Jan 2026 and CPI 14 Oct 2026 at 15:30 server time, FOMC 10 Dec 2025 at 21:00.
+  - In the tester the EA reads the file (`InpNewsFile`, default `GS15_news_USD.csv`) and applies the same before/after windows as live. `InpNewsInTester = false` turns it off, e.g. to compare with older results.
+  - `tools/ExportNews.mq5` exports the history by hand.
+- **Console button on the chart** (top right): **▶ Open console** / **■ Close console**. MT5 does not let an EA start programs without DLL imports, so the EA only writes a request file and a small hidden helper, `tools/GS15_ConsoleLauncher.ps1`, opens or closes the window.
+  - `tools/Install-ConsoleLauncher.ps1` installs the helper in the Windows Startup folder and starts it; `-Remove` uninstalls it.
+  - The helper writes a heartbeat; without it the button says **Console (set up)** and a click explains what to do. A second helper replaces one that has stopped responding.
+  - The console announces its process id, so the button closes the right window at once. `InpConsoleButton = false` hides the button.
+- **Headlines in the console:** recent headlines from BBC (world, business), CNBC (world, markets) and InfoQuest RSS, fetched in the background every 10 minutes. Information only: the EA never trades on them. `H` hides / shows them.
+- **Portable MT5:** `install_to_MT5.bat` installs into a portable MT5 in `D:\MT5_GoldScalper` when there is one (`PORTABLE=` line), and `tools/backtest.ps1` runs it with `/portable`. A note in the guide explains why MT5 and the console must be started from your own Windows session.
+
 ## v1.42 — Test button, console redesign, review fixes
 - **Test** button on the panel and `T` in the console: opens a real BUY of the minimum lot with an SL, holds it `InpQuickTestHoldMs` (100 ms), closes it, and reports how long the open, hold and close took and what it cost (the spread). Proves that orders really go through and nothing is stuck.
 - The test trade uses its own magic number (`InpMagic` + 1), so it never counts as a trade of the day, a loss, a cooldown or a losing streak. It is refused while the EA has an open trade or Algo Trading is off. A test trade left by an MT5 restart is closed automatically.

@@ -1,11 +1,11 @@
 # GoldScalperM15
 
-![Version](https://img.shields.io/badge/version-1.42-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.43-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
 
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
 with strict risk-based position sizing, a volatility filter, news filter, loss diagnosis, an on-chart control panel, a PowerShell console and mobile push notifications.
 
-**Current version: v1.42** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+**Current version: v1.43** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 
 ![On-chart control panel on a GOLD M15 chart](docs/images/panel.png)
 
@@ -36,7 +36,7 @@ Net profit by year (2018–2026, $3,000): 2018: no trades · 2019: +49 · 2020: 
 **Honest caveats**
 - Most of the profit comes from 2025–2026, when gold was unusually volatile. In quiet years the EA mostly sits out (by design) and earns little.
 - Fixed 0.01 lot means risk per trade grows with gold's volatility; the largest single loss in 2026 was about $230.
-- The news filter cannot run in the Strategy Tester, so it was not part of these results.
+- These results were run before v1.43 and do not include the news filter. Since v1.43 the EA can apply it in the Strategy Tester from an exported calendar file (`InpNewsInTester`); results with it are pending.
 
 ## 💰 Account size: Standard, Micro and Cent accounts
 
@@ -89,10 +89,10 @@ Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable 
 | | |
 |---|---|
 | 🚦 **Filters** | Trading hours · max spread · trades per day · daily loss limit · Friday close · daily close |
-| 📰 **News filter** | MT5 economic calendar — pauses entries around high-impact USD events (live trading only) |
+| 📰 **News filter** | MT5 economic calendar — pauses entries around high-impact USD events. Since v1.43 also in the Strategy Tester: the live EA exports the USD calendar history (GMT) to `Common\Files\GS15_news_USD.csv`, and the tester converts it to server time with the US daylight-saving rule |
 | 🖥️ **Control panel** | Live status (incl. "low volatility"), position P/L, today's stats, spread/ATR, next news · **Pause** / **Close all** / **Mode 1 / Mode 2** / **Test** (opens and closes a minimum-lot trade to prove orders go through) buttons |
 | 🧭 **Account check** | Start-up check in the Experts tab, or a popup from the panel button (TH/EN), that analyses balance, leverage, contract size and the money one stop-loss would cost, then recommends and lets you choose (keep, switch to 1% risk lots, pause, remove) |
-| 🖥️ **PowerShell console** | Desktop shortcut "GoldScalper Console" (`tools/Make-ConsoleShortcut.ps1`) or `GS15_Console.bat`. It shows the status with the reason, today's P/L, target vs actual risk, guards, market and news, and the event journal. Keys: `1`/`2` mode, `P` pause/resume, `A` account check, `T` test order, `C` close all. Each command waits for the EA's reply. The EA keeps running whether the console is open or not |
+| 🖥️ **PowerShell console** | Desktop shortcut "GoldScalper Console" (`tools/Make-ConsoleShortcut.ps1`) or `GS15_Console.bat`. It shows the status with the reason, today's P/L, target vs actual risk, guards, market and news, and the event journal. Keys: `1`/`2` mode, `P` pause/resume, `A` account check, `T` test order, `C` close all. Each command waits for the EA's reply. The EA keeps running whether the console is open or not. **Console button** on the chart (top right) opens / closes it through a small background helper (`tools/Install-ConsoleLauncher.ps1`, no DLL imports). **Headlines** from BBC, CNBC and InfoQuest RSS (information only, `H` to hide) |
 | 📱 **Notifications** | MT5 mobile push on open/close, news windows, daily-loss stop, skipped trades (max once a day) |
 
 ## 🚀 Installation
@@ -117,7 +117,7 @@ Build-Dev
 Invoke-Backtest -Name check -From 2024.10.13 -To 2026.10.12 -Model 4 -Deposit 3000
 ```
 
-Paths at the top of the script point to the author's MT5 installation; adjust them for yours.
+Paths at the top of the script point to the author's portable MT5 (`D:\MT5_GoldScalper`, started with `/portable`); adjust them for yours.
 
 ## 📁 Repository contents
 
@@ -126,6 +126,9 @@ GoldScalperM15.mq5          EA source code (MQL5)
 install_to_MT5.bat          One-click compile + install helper (Windows)
 GS15_Console.bat            Opens the PowerShell console (tools/GS15_Console.ps1)
 tools/Make-ConsoleShortcut.ps1  Desktop / Start menu shortcuts for the console
+tools/GS15_ConsoleLauncher.ps1  Background helper for the chart Console button
+tools/Install-ConsoleLauncher.ps1  Installs the helper in the Windows Startup folder
+tools/ExportNews.mq5        Script: export the calendar history by hand
 presets/                    Validated default preset
 tools/backtest.ps1          Backtest / optimization automation
 USER_GUIDE.md               User guide (English)

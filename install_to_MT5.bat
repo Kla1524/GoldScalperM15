@@ -6,6 +6,14 @@ rem Compile GoldScalperM15 in this folder, then copy it (and presets) into MT5.
 set "EA=GoldScalperM15"
 set "SRC=%~dp0"
 set "ME=C:\Program Files\MetaTrader 5\MetaEditor64.exe"
+rem A portable MT5 (terminal64.exe /portable) keeps its data next to the program. Used when present.
+set "PORTABLE=D:\MT5_GoldScalper"
+set "PFLAG="
+if exist "%PORTABLE%\MetaEditor64.exe" (
+  set "ME=%PORTABLE%\MetaEditor64.exe"
+  set "DATA=%PORTABLE%\MQL5"
+  set "PFLAG=/portable"
+)
 
 echo ==============================================
 echo   Install / update %EA% in MetaTrader 5
@@ -19,6 +27,7 @@ if not exist "%ME%" (
 )
 
 rem Find the MT5 data folder that belongs to C:\Program Files\MetaTrader 5
+if defined PFLAG goto :found
 set "DATA="
 for /d %%D in ("%APPDATA%\MetaQuotes\Terminal\*") do (
   if exist "%%D\origin.txt" (
@@ -29,6 +38,7 @@ if not defined DATA (
   echo [ERROR] MT5 data folder not found - start MT5 at least once first.
   goto :fail
 )
+:found
 
 echo Install to: %DATA%\Experts\MyEA
 echo.
@@ -38,7 +48,7 @@ if errorlevel 2 goto :cancel
 echo.
 echo [1/3] Compiling %EA%.mq5 ...
 if exist "%SRC%%EA%.ex5" del "%SRC%%EA%.ex5"
-start "" /wait "%ME%" /compile:"%SRC%%EA%.mq5" /include:"%DATA%" /log:"%SRC%compile.log"
+start "" /wait "%ME%" %PFLAG% /compile:"%SRC%%EA%.mq5" /include:"%DATA%" /log:"%SRC%compile.log"
 if not exist "%SRC%%EA%.ex5" (
   echo [ERROR] Compilation failed - see compile.log for details.
   goto :fail

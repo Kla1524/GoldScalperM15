@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.42 — User Guide
+# GoldScalperM15 v1.43 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
 
@@ -39,6 +39,8 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 | `GoldScalperM15.mq5` | Source code (edit in MetaEditor) |
 | `install_to_MT5.bat` | Double-click to compile and install/update the EA in MT5 |
 | `presets\*.set` | Validated default preset (same as the EA defaults) |
+| `GS15_Console.bat` | Opens the PowerShell console |
+| `tools\Install-ConsoleLauncher.ps1` | Run once: lets the **Console** button on the chart open / close the console |
 | `compile.log` | Created during installation — compiler output, safe to delete |
 
 ## 1. Install / update the EA
@@ -48,6 +50,8 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 3. It then compiles the EA → copies it to `MQL5\Experts\MyEA` → copies the `.set` files to `MQL5\Presets`.
 
 Run it again whenever you change `GoldScalperM15.mq5`.
+
+The installer uses a **portable MT5 in `D:\MT5_GoldScalper`** when there is one (started with `terminal64.exe /portable`; program and data in one folder), otherwise the MT5 in `C:\Program Files\MetaTrader 5`. Edit the `PORTABLE=` line if yours is elsewhere.
 
 ## 2. Attach the EA to a chart
 
@@ -93,6 +97,10 @@ The panel (top-left of the chart) shows:
 **System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 
 **PowerShell console** — open the "GoldScalper Console" shortcut on the Desktop or in the Start menu (create it once with `tools\Make-ConsoleShortcut.ps1`), or double-click `GS15_Console.bat` in the project folder. `A` runs the account check and shows the result. Commands are sent one at a time; the line under the buttons shows the EA's reply. It shows the EA's live status and a colour event log, newest first: opened, won, lost (with the reason), skipped (with the money at risk), news and warnings. Keys: `1` / `2` switch mode (both modes are explained first), `P` pause / resume, `A` account check, `T` test order, `C` close all (type CLOSE to confirm), `L` longer journal, `O` full log in Notepad, `Q` quit. Commands reach the EA within about a second. The EA works the same with the console closed. Files live in MT5's common `Files` folder (`GS15_<symbol>_<magic>_status/log/cmd.txt`); `InpConsole = false` turns this off.
+
+**Console button on the chart** — top right of the chart: **▶ Open console** opens the console window, **■ Close console** closes it. MT5 does not let an EA start programs without DLL imports, so a small background helper does it: run `powershell -ExecutionPolicy Bypass -File tools\Install-ConsoleLauncher.ps1` once. It adds a hidden "GoldScalper Console Launcher" to the Windows Startup folder and starts it; the EA only writes a request file. If the helper is not running the button says **Console (set up)** and explains what to do. `-Remove` uninstalls it; `InpConsoleButton = false` hides the button. Start MT5 and the helper from your own Windows session (Start menu, Desktop shortcut, Startup folder): programs started from inside a sandboxed app can get a separate copy of `%APPDATA%`, and then the console cannot see the EA.
+
+**Headlines** — under the event journal the console shows recent headlines from BBC, CNBC and InfoQuest RSS feeds, refreshed every 10 minutes in the background. They are for information only; the EA does not trade on them. `H` hides / shows them; the feed list is at the top of `tools\GS15_Console.ps1`.
 
 ## 4. Strategy and key settings
 
@@ -175,7 +183,7 @@ Individual notification types can be turned off in the **Notifications** input g
 4. Inputs tab → **Load** a preset → **Start**.
 5. Review Profit Factor (aim for > 1.3), Maximum Drawdown and number of trades.
 
-> The news filter **does not work in the Strategy Tester** (an MT5 limitation), so results include trades taken around news.
+> **News filter in the tester (v1.43+):** the MT5 calendar is not available in the Strategy Tester, so the live EA exports the USD calendar history (moderate + high, from Dec 2017) once a day to `Common\Files\GS15_news_USD.csv`, in GMT. In the tester the EA reads that file and converts each event to server time with the US daylight-saving rule (XM: GMT+2 in winter, GMT+3 in summer), so backtests skip the same news windows as live trading. Run the EA on a live or demo chart once before backtesting (or send `NEWSEXPORT` from the console). `InpNewsInTester = false` turns this off, e.g. to compare with older results, which did not include the news filter.
 > Tick **Visualization** if you want to see the control panel during the test.
 
 ## 7. Troubleshooting
@@ -188,3 +196,5 @@ Individual notification types can be turned off in the **Notifications** input g
 | No push notifications | Follow section 5 / look for "push failed" messages in the Experts tab |
 | Next news always shows "none in 24h" | Open the **Calendar** tab in the Toolbox (Ctrl+T) so MT5 downloads events / check your internet connection |
 | Installation fails | Open `compile.log` to see the error |
+| Chart button says "Console (set up)" | Run `tools\Install-ConsoleLauncher.ps1` once, or sign out and in again so the Startup helper starts |
+| Console shows "WAITING FOR THE EA" while the EA runs | The console and MT5 see different `Files` folders: start both from your own Windows session (see the Console button section) |
