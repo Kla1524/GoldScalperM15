@@ -76,6 +76,14 @@ function Wait-Until([string]$hhmm) {
 
 function Get-MainTerminal { Get-Process terminal64 -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Term } }
 
+# Every MT5 terminal with its folder and process id, and whether the live (demo) terminal still runs.
+$LiveTerm = 'D:\MT5_GoldScalper\terminal64.exe'
+function Log-Terminals([string]$when) {
+    $t = @(Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" -ErrorAction SilentlyContinue)
+    $list = ($t | ForEach-Object { '{0} pid {1}' -f $_.ExecutablePath, $_.ProcessId }) -join '; '
+    $live = @($t | Where-Object { $_.ExecutablePath -eq $LiveTerm }).Count -gt 0
+    Log ("terminals {0}: {1} | live terminal {2}" -f $when, $(if ($list) { $list } else { 'none' }), $(if ($live) { 'RUNNING' } else { 'NOT RUNNING' }))
+}
 function Run-One($r) {
     $dir = "$Suite\$($r.Name)"
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -106,15 +114,18 @@ Report=reports\night_$($r.Name)
 ReplaceReport=1
 ShutdownTerminal=1
 "@ | Set-Content $ini -Encoding Unicode
-    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv", "GS15_probe_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { [IO.File]::Delete("$Common\$j") } }
+    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv", "GS15_probe_GOLD_20261013_tester.csv", "GS15_stress_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { [IO.File]::Delete("$Common\$j") } }
+    Log-Terminals 'before'
     $start = Get-Date
-    $p = Start-Process $Term -ArgumentList '/portable', "/config:`"$ini`"" -WorkingDirectory $Mt5 -PassThru
+    # Minimised, so the test window is not mistaken for the live terminal.
+    $p = Start-Process $Term -ArgumentList '/portable', "/config:`"$ini`"" -WorkingDirectory $Mt5 -WindowStyle Minimized -PassThru
     $timeout = if ($r.Model -eq 4) { 120 } else { 75 }
     if (-not $p.WaitForExit($timeout * 60000)) { try { $p.Kill() } catch {}; throw "timeout after $timeout min" }
+    Log-Terminals 'after'
     $htm = "$Data\reports\night_$($r.Name).htm"
     if (-not (Test-Path $htm) -or (Get-Item $htm).LastWriteTime -lt $start) { throw 'no fresh report' }
     Copy-Item $htm "$dir\report.htm" -Force
-    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv", "GS15_probe_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { Copy-Item "$Common\$j" "$dir\" -Force } }
+    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv", "GS15_probe_GOLD_20261013_tester.csv", "GS15_stress_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { Copy-Item "$Common\$j" "$dir\" -Force } }
     $agentLog = Get-ChildItem $Agents -Recurse -Filter '*.log' | Where-Object { $_.FullName -match '\\logs\\' -and $_.LastWriteTime -ge $start } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($agentLog) {
         Get-Content $agentLog.FullName -Encoding Unicode | Where-Object { $_ -match 'Risk guard|error|range|critical|failed|final balance|history|quality|ticks|bars|SMC|generated|test passed|stopped' } |

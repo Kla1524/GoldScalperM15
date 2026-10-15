@@ -18,6 +18,9 @@ New-Item -ItemType Directory -Force "$out\src", "$out\presets", "$out\docs", "$o
 Copy-Item "$Repo\GoldScalperM15.mq5", "$Repo\GS15_SMC.mqh" "$out\src\"
 if (Test-Path "$Repo\tools\SMC_Tests.mq5") { Copy-Item "$Repo\tools\SMC_Tests.mq5" "$out\src\" }
 Copy-Item "$Repo\presets\*.set" "$out\presets\" -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force "$out\tools", "$out\tools\plans" | Out-Null   # the scripts that produced and analysed the results
+foreach ($f in 'analyze_exp.py', 'analyze_probes.py', 'montecarlo.py', 'analyze_journal.py', 'night_suite.ps1', 'lab.ps1', 'make_share_bundle.ps1') { if (Test-Path "$Repo\tools\$f") { Copy-Item "$Repo\tools\$f" "$out\tools\" } }
+Copy-Item "$Repo\tools\plans\*.ps1" "$out\tools\plans\" -ErrorAction SilentlyContinue
 foreach ($d in 'SMC_RULES.md', 'CODE_REVIEW.md') { if (Test-Path "$Repo\docs\$d") { Copy-Item "$Repo\docs\$d" "$out\docs\" } }
 foreach ($s in $Suite) {
     $src = if ([IO.Path]::IsPathRooted($s)) { $s } else { Join-Path $Repo $s }
@@ -40,7 +43,7 @@ $patterns = @(
 )
 $repl = @('$1$2<account>', 'activated for ''<login>''', '<email>', '<ip>', 'C:\Users\<user>')
 $changed = 0
-foreach ($f in Get-ChildItem $out -Recurse -File | Where-Object { $_.Extension -in '.mq5', '.mqh', '.md', '.set', '.csv', '.htm', '.html', '.log', '.txt', '.ini' }) {
+foreach ($f in Get-ChildItem $out -Recurse -File | Where-Object { $_.Extension -in '.mq5', '.mqh', '.md', '.set', '.csv', '.htm', '.html', '.log', '.txt', '.ini', '.ps1', '.py' }) {
     $bytes = [IO.File]::ReadAllBytes($f.FullName)
     $enc = if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { [Text.Encoding]::Unicode } else { New-Object Text.UTF8Encoding $false }
     $t = $enc.GetString($bytes)
