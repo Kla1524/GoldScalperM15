@@ -112,6 +112,19 @@ def main(suite):
         m['AvgTrade'] = round(sum(pls) / n, 2) if n else 0
         m['ExpR'] = round(sum(rs) / len(rs), 3) if rs else ''
         m['MaxLossStreak'] = streak(pls)
+        # Spread stress (InpTesterSpreadMult > 1): the extra spread is charged as tester withdrawals,
+        # which the report's net profit leaves out. Balance after costs and closed-trade drawdown:
+        costs = [float(x['extra_cost']) for x in read_csv(os.path.join(d, 'GS15_stress_GOLD_20261013_tester.csv'))]
+        dep = float(s.get('Deposit') or 0)
+        bal = peak = dep
+        dd = 0.0
+        for i, x in enumerate(pls):
+            bal += x - (costs[i] if i < len(costs) else 0.0)
+            peak = max(peak, bal)
+            dd = max(dd, 1.0 - bal / peak if peak > 0 else 0.0)
+        m['ExtraCost'] = round(sum(costs), 2)
+        m['NetAfterCost'] = round(m['Net'] - sum(costs), 2)
+        m['BalDDpct'] = round(100.0 * dd, 2)
         metrics.append(m)
         if mode3:
             reasons = Counter(norm_reason(r.get('reason', '')) for r in smc_rows if r.get('event') in ('INVALIDATED', 'EXPIRED'))
@@ -139,9 +152,9 @@ def main(suite):
         w = csv.DictWriter(f, fieldnames=list(metrics[0].keys()))
         w.writeheader()
         w.writerows(metrics)
-    lines = ['%-34s %10s %5s %6s %6s %6s %9s %7s %6s' % ('Run', 'Net', 'PF', 'DD%', 'Trades', 'Win%', 'AvgTrade', 'ExpR', 'MaxLS')]
+    lines = ['%-34s %10s %10s %5s %6s %6s %6s %6s %9s %7s %6s' % ('Run', 'Net', 'AfterCost', 'PF', 'DD%', 'BalDD%', 'Trades', 'Win%', 'AvgTrade', 'ExpR', 'MaxLS')]
     for m in metrics:
-        lines.append('%-34s %10.2f %5s %6s %6d %6.1f %9.2f %7s %6d' % (m['Run'], m['Net'], m['PF'], m['DDpct'], m['Trades'], m['WinPct'], m['AvgTrade'], m['ExpR'], m['MaxLossStreak']))
+        lines.append('%-34s %10.2f %10.2f %5s %6s %6.2f %6d %6.1f %9.2f %7s %6d' % (m['Run'], m['Net'], m['NetAfterCost'], m['PF'], m['DDpct'], m['BalDDpct'], m['Trades'], m['WinPct'], m['AvgTrade'], m['ExpR'], m['MaxLossStreak']))
     text = '\n'.join(lines + ['', 'News filter: trades removed (vs no news)'] + news + ['', 'Mode 3 funnel and reasons setups ended'] + notes) + '\n'
     io.open(os.path.join(suite, 'report_tables.txt'), 'w', encoding='utf-8').write(text)
     print(text)

@@ -1,0 +1,8 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpNewsMinsBefore=15
+InpRiskPct=0.5
+InpNewsMinsAfter=15
+InpLossCooldownMin=20
+InpTradeStyle=1

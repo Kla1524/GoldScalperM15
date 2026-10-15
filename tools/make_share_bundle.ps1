@@ -21,7 +21,7 @@ Copy-Item "$Repo\presets\*.set" "$out\presets\" -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$out\tools", "$out\tools\plans" | Out-Null   # the scripts that produced and analysed the results
 foreach ($f in 'analyze_exp.py', 'analyze_probes.py', 'montecarlo.py', 'analyze_journal.py', 'night_suite.ps1', 'lab.ps1', 'make_share_bundle.ps1') { if (Test-Path "$Repo\tools\$f") { Copy-Item "$Repo\tools\$f" "$out\tools\" } }
 Copy-Item "$Repo\tools\plans\*.ps1" "$out\tools\plans\" -ErrorAction SilentlyContinue
-foreach ($d in 'SMC_RULES.md', 'CODE_REVIEW.md') { if (Test-Path "$Repo\docs\$d") { Copy-Item "$Repo\docs\$d" "$out\docs\" } }
+foreach ($d in 'SMC_RULES.md', 'CODE_REVIEW.md', 'MT5_SELF_CLOSE.md') { if (Test-Path "$Repo\docs\$d") { Copy-Item "$Repo\docs\$d" "$out\docs\" } }
 foreach ($s in $Suite) {
     $src = if ([IO.Path]::IsPathRooted($s)) { $s } else { Join-Path $Repo $s }
     $dst = Join-Path "$out\results" (Split-Path $src -Leaf)
