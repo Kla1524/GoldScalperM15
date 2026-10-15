@@ -20,7 +20,9 @@ param(
     [string]$StopAt  = '07:30',
     [switch]$Now,
     [string]$Terminal = 'D:\MT5_GoldScalper',   # portable MT5 to test on; e.g. D:\MT5_Tester (a copy with no EA on its charts)
-    [switch]$NoRestart                        # do not start the terminal again at the end (use with a test-only copy)
+    [switch]$NoRestart,                       # do not start the terminal again at the end (use with a test-only copy)
+    [string]$Plan = '',                       # .ps1 that returns the list of runs (same fields as $runs below)
+    [string]$Tag  = ''                        # suffix for the result folder, e.g. 'exp1'
 )
 $ErrorActionPreference = 'Stop'
 # Only Get-LabSummary is needed from lab.ps1. Dot-source it FIRST: it sets $Term/$Editor for the
@@ -35,6 +37,7 @@ $Common = "$env:APPDATA\MetaQuotes\Terminal\Common\Files"
 $Agents = "$Mt5\Tester"
 $StopFile = 'D:\EA_Trade_lab\STOP'
 $Suite  = "$Repo\reports\experiments\suite_{0:yyyyMMdd}" -f (Get-Date).AddHours(6)
+if ($Tag) { $Suite += "_$Tag" }
 New-Item -ItemType Directory -Force $Suite | Out-Null
 New-Item -ItemType Directory -Force "$Terminal\reports" | Out-Null   # MT5 does not create the report folder itself
 $Log = "$Suite\suite.log"
@@ -58,6 +61,8 @@ $runs = @(
     @{ Name = 'R7_orb_0.5pct_1min_2018_2026_3k'; From = '2018.01.01'; To = '2026.10.12'; Model = 1; Deposit = 3000; Delay = 0; Inputs = @{ InpRiskPct = 0.5 } },
     @{ Name = 'R8_smc_realticks_3k_randomdelay'; From = '2024.10.14'; To = '2026.10.12'; Model = 4; Deposit = 3000; Delay = -1; Inputs = @{ InpTradeStyle = 3 } }
 )
+
+if ($Plan) { $runs = @(& $Plan) }
 
 function Wait-Until([string]$hhmm) {
     $t = [datetime]::ParseExact($hhmm, 'HH:mm', $null)
