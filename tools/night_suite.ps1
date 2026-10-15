@@ -22,7 +22,9 @@ param(
     [string]$Terminal = 'D:\MT5_GoldScalper',   # portable MT5 to test on; e.g. D:\MT5_Tester (a copy with no EA on its charts)
     [switch]$NoRestart,                       # do not start the terminal again at the end (use with a test-only copy)
     [string]$Plan = '',                       # .ps1 that returns the list of runs (same fields as $runs below)
-    [string]$Tag  = ''                        # suffix for the result folder, e.g. 'exp1'
+    [string]$Tag  = '',                       # suffix for the result folder, e.g. 'exp1'
+    [string]$SuiteName = '',                  # exact result folder name (continue an earlier suite), e.g. suite_20261016_exp3
+    [switch]$SkipDone                         # skip runs that already have a report in the result folder
 )
 $ErrorActionPreference = 'Stop'
 # Only Get-LabSummary is needed from lab.ps1. Dot-source it FIRST: it sets $Term/$Editor for the
@@ -38,6 +40,7 @@ $Agents = "$Mt5\Tester"
 $StopFile = 'D:\EA_Trade_lab\STOP'
 $Suite  = "$Repo\reports\experiments\suite_{0:yyyyMMdd}" -f (Get-Date).AddHours(6)
 if ($Tag) { $Suite += "_$Tag" }
+if ($SuiteName) { $Suite = "$Repo\reports\experiments\$SuiteName" }
 New-Item -ItemType Directory -Force $Suite | Out-Null
 New-Item -ItemType Directory -Force "$Terminal\reports" | Out-Null   # MT5 does not create the report folder itself
 $Log = "$Suite\suite.log"
@@ -180,6 +183,7 @@ try {
     foreach ($r in $runs) {
         if (Test-Path $StopFile) { Log 'STOP file - ending suite'; break }
         if ((Get-Date) -gt $stopTime) { Log "past $StopAt - no new runs"; break }
+        if ($SkipDone -and (Test-Path "$Suite\$($r.Name)\report.htm")) { Log "skip $($r.Name) (already done)"; continue }
         Log "start $($r.Name)"
         try { Run-One $r } catch { Log "FAILED $($r.Name): $($_.Exception.Message)" }
     }
