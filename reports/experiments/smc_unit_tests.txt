@@ -10,6 +10,12 @@ PASS  tolerance 5: zones 96-100 and 106-110
 PASS  nearest resistance above 102 is 106-110
 PASS  nearest support below 102 is 96-100
 PASS  price inside a zone: that zone is the resistance (no room)
+PASS  min distance 3: 106 is 4 away -> 106-110
+PASS  min distance 5: 106 too close -> next zone 120-122
+PASS  inside 106-110: skipped -> 120-122
+PASS  no zone far enough -> none
+PASS  support min distance 3: 100 is 4 below -> 96-100
+PASS  support: 110 only 2 below -> next zone 96-100
 PASS  bar 12 (close 102.8 below 106) is not a CHoCH
 PASS  bar 13 closes above lower high 106: bullish CHoCH
 PASS  bar 14 still above the level: no repeated CHoCH
@@ -35,4 +41,4 @@ PASS  mirror: no repeated bearish CHoCH
 PASS  mirror: OB = last bullish candle (bar 11)
 PASS  bearish FVG: High(C) 97.5 to Low(A) 101
 PASS  mirror: touches 101-103, bearish, closes below 101: confirmed
-SMC tests: 37 passed, 0 failed
+SMC tests: 43 passed, 0 failed

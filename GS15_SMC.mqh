@@ -148,6 +148,22 @@ bool SmcNearestSupport(const SmcZone &z[], double price, SmcZone &out)
    return false;
 }
 
+// Like the above, but zones whose near edge is closer than minDist to price (or that contain price)
+// are skipped: the target is the first zone that leaves at least minDist of room.
+bool SmcResistanceBeyond(const SmcZone &z[], double price, double minDist, SmcZone &out)
+{
+   for(int i = 0; i < ArraySize(z); i++)
+      if(z[i].lo - price >= minDist) { out = z[i]; return true; }
+   return false;
+}
+
+bool SmcSupportBeyond(const SmcZone &z[], double price, double minDist, SmcZone &out)
+{
+   for(int i = ArraySize(z) - 1; i >= 0; i--)
+      if(price - z[i].hi >= minDist) { out = z[i]; return true; }
+   return false;
+}
+
 //--- CHoCH ------------------------------------------------------------
 // Is bar k a change of character? Uses only swings confirmed before bar k closed (i + R <= k - 1).
 // Bullish: the prior structure is bearish (latest swing high and low both lower than the previous

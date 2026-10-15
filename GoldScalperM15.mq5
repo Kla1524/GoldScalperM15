@@ -57,6 +57,12 @@ input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // Strategy
 input bool            InpAllowBuy        = true;      // Allow buys
 input bool            InpAllowSell       = true;      // Allow sells
 
+enum ENUM_SMC_TP
+{
+   SMC_TP_ZONE  = 0,   // Nearest H1 support / resistance zone
+   SMC_TP_FIXEDR = 1   // Fixed multiple of the stop distance (InpSmcTpR)
+};
+
 input group "=== Mode 3: SMC (FVG + CHoCH + OB) - experimental ==="
 input ENUM_TIMEFRAMES InpSmcTfBias      = PERIOD_H1;  // [SMC] bias and support/resistance timeframe
 input ENUM_TIMEFRAMES InpSmcTfStructure = PERIOD_M15; // [SMC] CHoCH / order block / FVG timeframe
@@ -77,6 +83,9 @@ input double InpSmcRiskPct        = 0.5;   // [SMC] risk % of equity per trade
 input double InpSmcMinRR          = 1.5;   // [SMC] minimum reward:risk after costs
 input double InpSmcSlBufAtr       = 0.2;   // [SMC] SL buffer beyond OB / setup swing, x M15 ATR
 input double InpSmcTpBufAtr       = 0.1;   // [SMC] TP placed x M15 ATR before the H1 zone
+input ENUM_SMC_TP InpSmcTpMode    = SMC_TP_ZONE; // [SMC] take-profit: nearest H1 zone or a fixed R multiple
+input double InpSmcTpR            = 2.0;   // [SMC] fixed-R mode: TP = entry +/- x times the entry-to-SL distance
+input double InpSmcTpMinDistAtr   = 0.0;   // [SMC] zone mode: skip H1 zones nearer than x H1 ATR, use the next one (0 = off)
 input int    InpSmcExpiryBars     = 16;    // [SMC] setup expires after x M15 bars
 input int    InpSmcRolloverHour   = 0;     // [SMC] broker rollover (swap) hour, server time (XM: 00:00)
 input int    InpSmcNoEntryBeforeMin = 60;  // [SMC] no entries x minutes before the rollover
@@ -2517,9 +2526,27 @@ void SmcTryEnter()
    double sl    = isBuy ? MathMin(smc.obLo, smc.structLo) - InpSmcSlBufAtr * atr
                         : MathMax(smc.obHi, smc.structHi) + InpSmcSlBufAtr * atr;
    SmcZone z;
-   bool haveTarget = isBuy ? SmcNearestResistance(smcZones, entry, z) : SmcNearestSupport(smcZones, entry, z);
-   if(!haveTarget) { SmcSkip(isBuy ? "no confirmed H1 resistance above price for a target" : "no confirmed H1 support below price for a target"); return; }
-   double tp = isBuy ? z.lo - InpSmcTpBufAtr * atr : z.hi + InpSmcTpBufAtr * atr;
+   ZeroMemory(z);
+   double tp = 0;
+   if(InpSmcTpMode == SMC_TP_FIXEDR)
+   {
+      // Fixed R: the target is a multiple of the stop distance; no support/resistance zone needed.
+      if(isBuy ? sl >= entry : sl <= entry) { SmcSkip("stop is at or beyond the entry"); return; }
+      tp = isBuy ? entry + InpSmcTpR * (entry - sl) : entry - InpSmcTpR * (sl - entry);
+   }
+   else
+   {
+      bool haveTarget;
+      if(InpSmcTpMinDistAtr > 0)
+      {
+         double minDist = InpSmcTpMinDistAtr * smcAtrH1;
+         haveTarget = isBuy ? SmcResistanceBeyond(smcZones, entry, minDist, z) : SmcSupportBeyond(smcZones, entry, minDist, z);
+      }
+      else
+         haveTarget = isBuy ? SmcNearestResistance(smcZones, entry, z) : SmcNearestSupport(smcZones, entry, z);
+      if(!haveTarget) { SmcSkip(isBuy ? "no confirmed H1 resistance above price for a target" : "no confirmed H1 support below price for a target"); return; }
+      tp = isBuy ? z.lo - InpSmcTpBufAtr * atr : z.hi + InpSmcTpBufAtr * atr;
+   }
    sl = NormPrice(sl); tp = NormPrice(tp);
    if(isBuy ? (sl >= entry || tp <= entry) : (sl <= entry || tp >= entry))
    { SmcSkip(StringFormat("target zone %s-%s is at or behind the entry - no room", DoubleToString(z.lo, _Digits), DoubleToString(z.hi, _Digits))); return; }

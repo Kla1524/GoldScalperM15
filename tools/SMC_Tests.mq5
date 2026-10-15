@@ -104,6 +104,15 @@ void OnStart()
    Check(SmcNearestResistance(z, 102, zz) && zz.lo == 106, "nearest resistance above 102 is 106-110");
    Check(SmcNearestSupport(z, 102, zz) && zz.hi == 100, "nearest support below 102 is 96-100");
    Check(SmcNearestResistance(z, 107, zz) && zz.lo == 106, "price inside a zone: that zone is the resistance (no room)");
+   SmcZone z3[];
+   ArrayResize(z3, 3);
+   z3[0].lo = 96;  z3[0].hi = 100; z3[1].lo = 106; z3[1].hi = 110; z3[2].lo = 120; z3[2].hi = 122;
+   Check(SmcResistanceBeyond(z3, 102, 3, zz) && zz.lo == 106, "min distance 3: 106 is 4 away -> 106-110");
+   Check(SmcResistanceBeyond(z3, 102, 5, zz) && zz.lo == 120, "min distance 5: 106 too close -> next zone 120-122");
+   Check(SmcResistanceBeyond(z3, 107, 1, zz) && zz.lo == 120, "inside 106-110: skipped -> 120-122");
+   Check(!SmcResistanceBeyond(z3, 102, 30, zz), "no zone far enough -> none");
+   Check(SmcSupportBeyond(z3, 104, 3, zz) && zz.hi == 100, "support min distance 3: 100 is 4 below -> 96-100");
+   Check(SmcSupportBeyond(z3, 112, 3, zz) && zz.hi == 100, "support: 110 only 2 below -> next zone 96-100");
 
    //--- CHoCH
    SmcSwing lvl;
