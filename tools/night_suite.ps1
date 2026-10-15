@@ -106,7 +106,7 @@ Report=reports\night_$($r.Name)
 ReplaceReport=1
 ShutdownTerminal=1
 "@ | Set-Content $ini -Encoding Unicode
-    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { [IO.File]::Delete("$Common\$j") } }
+    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv", "GS15_probe_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { [IO.File]::Delete("$Common\$j") } }
     $start = Get-Date
     $p = Start-Process $Term -ArgumentList '/portable', "/config:`"$ini`"" -WorkingDirectory $Mt5 -PassThru
     $timeout = if ($r.Model -eq 4) { 120 } else { 75 }
@@ -114,7 +114,7 @@ ShutdownTerminal=1
     $htm = "$Data\reports\night_$($r.Name).htm"
     if (-not (Test-Path $htm) -or (Get-Item $htm).LastWriteTime -lt $start) { throw 'no fresh report' }
     Copy-Item $htm "$dir\report.htm" -Force
-    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { Copy-Item "$Common\$j" "$dir\" -Force } }
+    foreach ($j in "GS15_journal_GOLD_20261013_tester.csv", "GS15_smc_journal_GOLD_20261013_tester.csv", "GS15_probe_GOLD_20261013_tester.csv") { if (Test-Path "$Common\$j") { Copy-Item "$Common\$j" "$dir\" -Force } }
     $agentLog = Get-ChildItem $Agents -Recurse -Filter '*.log' | Where-Object { $_.FullName -match '\\logs\\' -and $_.LastWriteTime -ge $start } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($agentLog) {
         Get-Content $agentLog.FullName -Encoding Unicode | Where-Object { $_ -match 'Risk guard|error|range|critical|failed|final balance|history|quality|ticks|bars|SMC|generated|test passed|stopped' } |

@@ -184,6 +184,7 @@ input bool   InpQuickTestReal   = false; // Allow the Test button on a REAL acco
 input group "=== Loss diagnosis ==="
 input int    InpLossCooldownMin = 20;   // Pause after a losing trade (minutes, 0 = off)
 input bool   InpJournal         = true; // Log every trade + loss reasons to CSV (Common\Files)
+input bool   InpProbeLog        = false; // Research: log signals skipped because a position is open (modes 1/2) and every mode-3 confirmation, with MFE/MAE after 4/8/16/32 M15 bars - no trades
 input int    InpMinConfidence   = 1;    // Min confidence score 0-4 (D1 trend, H1 trend, ADX 20-30, strong RSI; 0 = off)
 
 //--- globals
@@ -385,6 +386,8 @@ int OnInit()
    // Each single tester run starts a fresh journal (live trading appends).
    if(InpJournal && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
       FileDelete(JournalName(), FILE_COMMON);
+   if(InpProbeLog && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
+      FileDelete(ProbeFileName(), FILE_COMMON);
 
    newsExportPending = true;   // refresh the news history file shortly after start (live only)
    EventSetTimer(1);
@@ -505,6 +508,8 @@ void TestStep()
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   if(InpProbeLog)
+      ProbesOnTick();
    ManagePositions();
    UpdatePeak();
 
@@ -564,7 +569,11 @@ void OnTick()
    ExitOnSignal();
 
    if(CountPositions() > 0)
+   {
+      if(InpProbeLog)
+         ProbeSkippedSignal();   // research: would this bar have been a trade without the open position?
       return;
+   }
 
    int    tradesToday;
    double profitToday;
@@ -2488,6 +2497,14 @@ void SmcUpdateEntryBar()
       smcState = SMC_CONFIRMED;
       smcNote  = StringFormat("confirmed by the %s candle of %s", StringSubstr(EnumToString(InpSmcTfEntry), 7), TimeToString(b[0].time, TIME_MINUTES));
       SmcJournal("CONFIRMED", smcNote);
+      if(InpProbeLog)
+      {
+         // Research: follow every confirmation, traded or not, with the stop the entry would use.
+         double px = smc.dir > 0 ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         double sl = smc.dir > 0 ? MathMin(smc.obLo, smc.structLo) - InpSmcSlBufAtr * smcAtrM15
+                                 : MathMax(smc.obHi, smc.structHi) + InpSmcSlBufAtr * smcAtrM15;
+         ProbeAdd(2, smcId, smc.dir, px, MathAbs(px - sl), 0);
+      }
    }
 }
 
@@ -3245,4 +3262,138 @@ void AccountCheck(bool popup)
    }
    if(level == 0 && answer == IDCANCEL)
       ExpertRemove();
+}
+
+//+------------------------------------------------------------------+
+//| Research probes (InpProbeLog, normally used in the tester only). |
+//| No orders: a probe follows a hypothetical entry and records how  |
+//| far price moved for it (MFE) and against it (MAE), in R, after   |
+//| 4, 8, 16 and 32 M15 bars. R = the stop distance the entry would  |
+//| have used. kind 1 = mode 1/2 signal skipped because a position   |
+//| was open; kind 2 = mode 3 confirmation (traded or not).          |
+//+------------------------------------------------------------------+
+struct GS15Probe
+{
+   int      kind;
+   string   id;
+   int      dir;
+   datetime t0;
+   double   entry, risk;          // price, stop distance (price units)
+   double   mfe, mae;             // running max, price units
+   double   mfeBeforeSl;          // MFE frozen when the stop is first reached
+   bool     slHit;
+   int      slBar;                // M15 bars from entry to the stop (-1 = not hit)
+   datetime closeAt;              // kind 1: daily close of that day (hypothetical exit)
+   bool     exited;
+   double   exitR;
+   double   mfeAt[4], maeAt[4];
+   int      done;                 // checkpoints reached
+};
+GS15Probe probes[];
+int       probeCheck[4] = {4, 8, 16, 32};
+
+string ProbeFileName()
+{
+   return StringFormat("GS15_probe_%s_%I64u%s.csv", _Symbol, InpMagic, MQLInfoInteger(MQL_TESTER) ? "_tester" : "");
+}
+
+void ProbeAdd(int kind, string id, int dir, double entry, double risk, datetime closeAt)
+{
+   if(risk <= 0 || entry <= 0)
+      return;
+   int n = ArraySize(probes);
+   ArrayResize(probes, n + 1, 64);
+   probes[n].kind = kind;  probes[n].id = id;  probes[n].dir = dir;
+   probes[n].t0 = TimeCurrent();  probes[n].entry = entry;  probes[n].risk = risk;
+   probes[n].mfe = 0;  probes[n].mae = 0;  probes[n].mfeBeforeSl = 0;
+   probes[n].slHit = false;  probes[n].slBar = -1;
+   probes[n].closeAt = closeAt;  probes[n].exited = kind != 1;  probes[n].exitR = 0;
+   probes[n].done = 0;
+   ArrayInitialize(probes[n].mfeAt, 0);
+   ArrayInitialize(probes[n].maeAt, 0);
+}
+
+void ProbesOnTick()
+{
+   int n = ArraySize(probes);
+   if(n == 0)
+      return;
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID), ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   if(bid <= 0 || ask <= 0)
+      return;
+   datetime now = TimeCurrent();
+   for(int i = n - 1; i >= 0; i--)
+   {
+      // A BUY would close at the bid, a SELL at the ask.
+      double fav = probes[i].dir > 0 ? bid - probes[i].entry : probes[i].entry - ask;
+      int bars = iBarShift(_Symbol, PERIOD_M15, probes[i].t0, false);
+      if(fav > probes[i].mfe)  probes[i].mfe = fav;
+      if(-fav > probes[i].mae) probes[i].mae = -fav;
+      if(!probes[i].slHit)
+      {
+         probes[i].mfeBeforeSl = probes[i].mfe;
+         if(probes[i].mae >= probes[i].risk) { probes[i].slHit = true; probes[i].slBar = bars; }
+      }
+      if(!probes[i].exited)
+      {
+         if(probes[i].slHit)               { probes[i].exited = true; probes[i].exitR = -1.0; }
+         else if(now >= probes[i].closeAt) { probes[i].exited = true; probes[i].exitR = fav / probes[i].risk; }
+      }
+      while(probes[i].done < 4 && bars >= probeCheck[probes[i].done])
+      {
+         probes[i].mfeAt[probes[i].done] = probes[i].mfe / probes[i].risk;
+         probes[i].maeAt[probes[i].done] = probes[i].mae / probes[i].risk;
+         probes[i].done++;
+      }
+      if(probes[i].done >= 4 && probes[i].exited)
+      {
+         ProbeWrite(probes[i]);
+         ArrayRemove(probes, i, 1);
+      }
+   }
+}
+
+void ProbeWrite(const GS15Probe &p)
+{
+   string name = ProbeFileName();
+   bool exists = FileIsExist(name, FILE_COMMON);
+   int f = FileOpen(name, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(f == INVALID_HANDLE)
+      return;
+   if(!exists)
+      FileWriteString(f, "kind,id,time,dir,entry,risk,sl_hit,sl_bar,mfe_before_sl_r,exit_r,mfe4,mae4,mfe8,mae8,mfe16,mae16,mfe32,mae32\r\n");
+   FileSeek(f, 0, SEEK_END);
+   string row = StringFormat("%d,%s,%s,%s,%s,%.5f,%d,%d,%.3f,%s", p.kind, p.id, TimeToString(p.t0, TIME_DATE | TIME_MINUTES),
+                             p.dir > 0 ? "BUY" : "SELL", DoubleToString(p.entry, _Digits), p.risk, p.slHit ? 1 : 0, p.slBar,
+                             p.mfeBeforeSl / p.risk, p.kind == 1 ? DoubleToString(p.exitR, 3) : "");
+   for(int k = 0; k < 4; k++)
+      row += StringFormat(",%.3f,%.3f", p.mfeAt[k], p.maeAt[k]);
+   FileWriteString(f, row + "\r\n");
+   FileClose(f);
+}
+
+// Modes 1/2: evaluate the entry rules while a position is open, without trading. Uses the same
+// filters as a real entry (except the open position itself) and the same stop (InpSL_ATR x ATR).
+void ProbeSkippedSignal()
+{
+   int    tradesToday;
+   double profitToday;
+   GetTodayStats(tradesToday, profitToday);
+   if(BlockReason(tradesToday, profitToday) != "")
+      return;
+   double atr[];
+   if(!GetBuf(hATR, atr))
+      return;
+   double a = atr[0];
+   if(InpMinATR > 0 && a < InpMinATR)
+      return;
+   int signal = GetSignal();
+   if(signal == 0 || (signal > 0 && !InpAllowBuy) || (signal < 0 && !InpAllowSell))
+      return;
+   if(InpMinConfidence > 0 && ConfidenceScore(signal) < InpMinConfidence)
+      return;
+   double px = signal > 0 ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   datetime now = TimeCurrent();
+   datetime closeAt = InpDailyCloseHour >= 0 ? now - (now % 86400) + InpDailyCloseHour * 3600 : now + 32 * 900;
+   ProbeAdd(1, "SKIP-" + TimeToString(now, TIME_DATE | TIME_MINUTES), signal, px, MathMax(a * InpSL_ATR, MinStopDistance()), closeAt);
 }
