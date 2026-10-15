@@ -1,0 +1,47 @@
+Run                                       Net    PF    DD% Trades   Win%  AvgTrade    ExpR  MaxLS
+REG_R1_mode1_nonews_1min_3k           2670.83  1.45  14.79    473   49.0      5.65    0.18      9
+REG_R6_smc_1min_2018_2026_3k           -60.88  0.64   4.06     20   25.0     -3.04  -0.223      8
+U0_mode1_cd20_DEV                      995.80  1.22    8.1    206   43.7      4.83    0.12      9
+U0_mode1_cd20_VAL                     2147.11  1.53   4.46    258   52.3      8.32   0.214      8
+U0_mode1_cd20_VALRT                   1475.84  1.46   4.31    223   51.6      6.62   0.208      8
+U1_mode2_cd20_DEV                      753.14  1.14  10.72    246   41.5      3.06   0.088     11
+U1_mode2_cd20_VAL                     2102.87  1.48   5.34    282   52.5      7.46   0.194      8
+U1_mode2_cd20_VALRT                   1427.07  1.41   5.06    240   52.9      5.95   0.192      8
+U2_mode2_cd0_DEV                       647.60  1.12  11.69    256   41.8      2.53   0.073      9
+U2_mode2_cd0_VAL                      2129.12  1.48   5.34    284   52.5      7.50   0.195      8
+U2_mode2_cd0_VALRT                    1452.65  1.41    5.1    242   52.9      6.00   0.193      5
+M3P_base_probes_DEV                   -265.98   0.5   4.31     16   18.8    -16.62  -0.406      8
+M3P_base_probes_VAL                     52.37  1.41   1.75      5   40.0     10.47   0.507      3
+M3P_base_probes_VALRT                   50.46  1.38    1.7      5   40.0     10.09   0.506      3
+
+News filter: trades removed (vs no news)
+
+Mode 3 funnel and reasons setups ended
+REG_R6_smc_1min_2018_2026_3k: detected 820, ready 649, confirmed 199, opened 20
+     219  H1 bias became neutral
+     154  no FVG within # bars of the CHoCH
+     141  no entry within # M15 bars
+     111  RR # < # after costs
+      40  opposite CHoCH
+      34  target zone #-# is at or behind the entry - no room
+M3P_base_probes_DEV: detected 580, ready 459, confirmed 140, opened 16
+     161  H1 bias became neutral
+     111  no FVG within # bars of the CHoCH
+      92  no entry within # M15 bars
+      72  RR # < # after costs
+      32  opposite CHoCH
+      27  target zone #-# is at or behind the entry - no room
+M3P_base_probes_VAL: detected 240, ready 190, confirmed 59, opened 5
+      58  H1 bias became neutral
+      49  no entry within # M15 bars
+      43  no FVG within # bars of the CHoCH
+      39  RR # < # after costs
+      13  M15 closed below the order block
+      10  M15 closed above the order block
+M3P_base_probes_VALRT: detected 162, ready 131, confirmed 40, opened 5
+      37  no entry within # M15 bars
+      36  H1 bias became neutral
+      28  no FVG within # bars of the CHoCH
+      26  RR # < # after costs
+       9  M15 closed below the order block
+       6  M15 closed above the order block

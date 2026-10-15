@@ -1,0 +1,7 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpProbeLog=true
+InpTradeStyle=1
+InpLossCooldownMin=20
+InpRiskPct=0.5

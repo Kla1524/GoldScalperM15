@@ -1,0 +1,42 @@
+M3P_base_probes_DEV: 140 mode-3 confirmations
+    bars  MFE(avg R)  MAE(avg R)  stop reached
+       4        0.59        0.84        33.6%
+       8        0.91        1.17        49.3%
+      16        1.31        1.64        65.7%
+      32        1.90        2.26        77.9%
+    fixed target, 1 R stop, 32 bars:  k   reached first  stop first  expectancy
+                                    0.5          46.4%       50.7%     -0.275 R
+                                    1.0          33.6%       60.7%     -0.271 R
+                                    1.5          20.7%       70.7%     -0.396 R
+                                    2.0          15.7%       72.9%     -0.414 R
+                                    3.0          10.0%       75.7%     -0.457 R
+M3P_base_probes_VAL: 59 mode-3 confirmations
+    bars  MFE(avg R)  MAE(avg R)  stop reached
+       4        0.66        0.71        20.3%
+       8        1.00        0.95        37.3%
+      16        1.53        1.27        54.2%
+      32        2.45        2.15        66.1%
+    fixed target, 1 R stop, 32 bars:  k   reached first  stop first  expectancy
+                                    0.5          62.7%       35.6%     -0.042 R
+                                    1.0          40.7%       52.5%     -0.119 R
+                                    1.5          28.8%       61.0%     -0.178 R
+                                    2.0          23.7%       64.4%     -0.169 R
+                                    3.0          16.9%       66.1%     -0.153 R
+M3P_base_probes_VALRT: 40 mode-3 confirmations
+    bars  MFE(avg R)  MAE(avg R)  stop reached
+       4        0.52        0.58        12.5%
+       8        0.90        0.75        30.0%
+      16        1.55        1.06        52.5%
+      32        2.49        1.93        70.0%
+    fixed target, 1 R stop, 32 bars:  k   reached first  stop first  expectancy
+                                    0.5          65.0%       35.0%     -0.025 R
+                                    1.0          42.5%       52.5%     -0.100 R
+                                    1.5          27.5%       65.0%     -0.237 R
+                                    2.0          22.5%       70.0%     -0.250 R
+                                    3.0          15.0%       70.0%     -0.250 R
+U1_mode2_cd20_DEV: 193 skipped signals (position open), hypothetical expectancy -0.054 R, win 43.0%, stop hit 32.6%, sum -10.4 R
+U1_mode2_cd20_VAL: 252 skipped signals (position open), hypothetical expectancy +0.094 R, win 54.4%, stop hit 27.4%, sum +23.6 R
+U1_mode2_cd20_VALRT: 215 skipped signals (position open), hypothetical expectancy +0.075 R, win 53.0%, stop hit 26.0%, sum +16.2 R
+U2_mode2_cd0_DEV: 197 skipped signals (position open), hypothetical expectancy -0.061 R, win 42.1%, stop hit 32.5%, sum -12.0 R
+U2_mode2_cd0_VAL: 254 skipped signals (position open), hypothetical expectancy +0.085 R, win 53.9%, stop hit 28.0%, sum +21.6 R
+U2_mode2_cd0_VALRT: 216 skipped signals (position open), hypothetical expectancy +0.070 R, win 52.8%, stop hit 26.4%, sum +15.2 R
