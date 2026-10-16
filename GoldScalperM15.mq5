@@ -42,6 +42,8 @@ input int    InpTrendEMA    = 200;   // Trend EMA period
 input bool   InpUseTrend    = false; // Also require the close beyond the trend EMA
 input int    InpRangeStartHour = 0;  // Range start (hour, server time)
 input int    InpRangeEndHour   = 8;  // Range end / breakouts from (hour, server time)
+input bool   InpStopEntry      = false; // Enter with BUY STOP / SELL STOP orders at the range edges (the other side is cancelled on a fill) instead of waiting for an M15 close beyond the range
+input int    InpStopEntryBufPts = 0;   // Stop-entry: extra distance beyond the range edge (points)
 input int    InpRSIPeriod   = 14;    // RSI period (confidence score, journal)
 
 input group "=== SL / TP (multiples of ATR) ==="
@@ -148,7 +150,8 @@ ENUM_LOT_MODE rtSeenMode = LOT_FIXED;
 double    rtSeenRisk    = 0;
 bool      accountCheckDone    = false;   // globals survive timeframe changes: popup once per attach
 bool      accountCheckPending = false;
-double    orbHigh       = 0, orbLow = 0;   // last ORB range seen by GetSignal()
+double    orbHigh       = 0, orbLow = 0;   // last ORB range seen by GetSignal() / TodayRange()
+double    seAtr         = 0;               // stop-entry: M15 ATR when the orders were placed
 datetime  cooldownUntil = 0;
 datetime lastBarTime     = 0;
 datetime newsLastCheck   = 0;
@@ -424,6 +427,7 @@ void OnTick()
          CloseAll();
          Notify(L("ปิดออเดอร์ทั้งหมดก่อนตลาดปิดวันศุกร์", "Closed all trades before the Friday market close"));
       }
+      DeleteStopOrders(L("ก่อนตลาดปิดวันศุกร์", "before the Friday close"));
       return;
    }
 
@@ -451,6 +455,8 @@ void OnTick()
    }
 
    TrackOpenTrade();
+   if(InpStopEntry)
+      StopEntryOnTick();
 
    if(!IsNewBar())
       return;
@@ -462,6 +468,9 @@ void OnTick()
       if((ti.dir > 0 && c1 < ti.rangeHigh) || (ti.dir < 0 && c1 > ti.rangeLow))
          ti.backInside = true;
    }
+
+   if(InpStopEntry)
+      return;   // entries come from the stop orders (StopEntryOnTick)
 
    if(CountPositions() > 0)
       return;
@@ -576,6 +585,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       return;
 
    long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(entry == DEAL_ENTRY_IN)
+   {
+      StopEntryFilled(trans.deal);
+      return;
+   }
    if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY)
       return;
 
@@ -944,6 +958,191 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
                                  trade.ResultRetcodeDescription()));
 }
 
+//+------------------------------------------------------------------+
+//| Stop-entry (InpStopEntry): a BUY STOP above and a SELL STOP below |
+//| today's range, placed once the range has formed. Whichever fills  |
+//| first is the trade of the day; the other order is cancelled. The  |
+//| orders and their SL wait on the broker's server.                  |
+//+------------------------------------------------------------------+
+#define STOP_COMMENT_BUY  "GoldScalper BUY STOP"
+#define STOP_COMMENT_SELL "GoldScalper SELL STOP"
+
+// Today's range (InpRangeStartHour - InpRangeEndHour, server time); false before it has formed.
+bool TodayRange(double &hi, double &lo)
+{
+   datetime now = TimeCurrent();
+   datetime day0 = now - (now % 86400);
+   datetime rs = day0 + InpRangeStartHour * 3600;
+   datetime re = day0 + InpRangeEndHour * 3600 - 1;
+   if(now <= re)
+      return false;
+   double hs[], ls[];
+   if(CopyHigh(_Symbol, InpTF, rs, re, hs) < 2 || CopyLow(_Symbol, InpTF, rs, re, ls) < 2)
+      return false;
+   hi = hs[ArrayMaximum(hs)];
+   lo = ls[ArrayMinimum(ls)];
+   orbHigh = hi;
+   orbLow  = lo;
+   return true;
+}
+
+// This EA's pending order of one type (0 = none).
+ulong StopOrderTicket(ENUM_ORDER_TYPE type)
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong t = OrderGetTicket(i);
+      if(t > 0 && OrderGetString(ORDER_SYMBOL) == _Symbol && (ulong)OrderGetInteger(ORDER_MAGIC) == InpMagic &&
+         (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE) == type)
+         return t;
+   }
+   return 0;
+}
+
+void DeleteStopOrders(string why)
+{
+   for(int k = 0; k < 2; k++)
+   {
+      ulong t = StopOrderTicket(k == 0 ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP);
+      if(t > 0 && trade.OrderDelete(t))
+         ConsoleLog("INFO", StringFormat(L("ยกเลิกคำสั่งรอ %s (%s)", "Cancelled the %s order (%s)"), k == 0 ? "BUY STOP" : "SELL STOP", why));
+   }
+}
+
+// Lot for a stop order, with the same checks as a market entry; 0 = skip (reason sent once a day).
+double StopEntryLots(string side, double price, double slDist)
+{
+   double lots = CalcLots(slDist);
+   double cap  = MaxLotCap(price);
+   if(cap > 0 && lots > cap)
+   {
+      if(cap < SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
+         return 0;
+      lots = NormalizeLots(cap);
+   }
+   double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
+   double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
+   double riskMoney = RiskPerLot(slDist) * lots;
+   if(lotModeRt == LOT_RISK && riskMoney <= 0)
+      return 0;
+   if(InpMaxRiskPct > 0 && riskMoney > equity * InpMaxRiskPct / 100.0)
+      return 0;
+   if(lotModeRt == LOT_RISK && InpStrictRisk && equity > 0 && riskMoney > equity * RiskPctEff() / 100.0 * 1.0001)
+   {
+      NotifyFailure(StringFormat(L("ไม่วาง %s: lot ขั้นต่ำ %.2f เสี่ยง %.2f%% เกินเป้า %.1f%%", "Not placing %s: min lot %.2f would risk %.2f%%, above the %.1f%% target"),
+                                 side, lots, riskMoney / equity * 100.0, RiskPctEff()));
+      return 0;
+   }
+   if(InpMaxDailyLossPct > 0)
+   {
+      int t; double p;
+      GetTodayStats(t, p);
+      if(riskMoney > (balance - p) * InpMaxDailyLossPct / 100.0 - MathMax(0.0, -p))
+         return 0;
+   }
+   return lots;
+}
+
+void StopEntryOnTick()
+{
+   // OCO: once a position of this EA exists, the other order goes.
+   if(CountPositions() > 0)
+   {
+      DeleteStopOrders(L("อีกฝั่งเปิดไม้แล้ว", "the other side filled"));
+      return;
+   }
+   int    tradesToday;
+   double profitToday;
+   GetTodayStats(tradesToday, profitToday);
+   string block = BlockReason(tradesToday, profitToday, true);
+   if(block != "")
+   {
+      DeleteStopOrders(block);
+      return;
+   }
+   double hi, lo;
+   if(!TodayRange(hi, lo))
+      return;
+   if(!SpreadOK())
+      return;                 // a wide spread only delays new orders; placed ones stay
+   double atr[];
+   if(!GetBuf(hATR, atr) || atr[0] <= 0 || (InpMinATR > 0 && atr[0] < InpMinATR))
+      return;
+   double slDist  = MathMax(atr[0] * InpSL_ATR, MinStopDistance());
+   double tpDist  = MathMax(atr[0] * InpTP_ATR, MinStopDistance());
+   double buf     = InpStopEntryBufPts * _Point;
+   double ask     = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double minDist = MinStopDistance();
+   datetime now   = TimeCurrent();
+   datetime expiry = now - (now % 86400) + InpEndHour * 3600;
+
+   for(int k = 0; k < 2; k++)
+   {
+      int dir = k == 0 ? 1 : -1;
+      if((dir > 0 && !InpAllowBuy) || (dir < 0 && !InpAllowSell))
+         continue;
+      ENUM_ORDER_TYPE type = dir > 0 ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP;
+      ulong have = StopOrderTicket(type);
+      // Confidence is re-checked as bars close: an order whose side no longer qualifies is withdrawn.
+      bool confident = InpMinConfidence <= 0 || ConfidenceScore(dir) >= InpMinConfidence;
+      if(have > 0)
+      {
+         if(!confident && trade.OrderDelete(have))
+            ConsoleLog("SKIP", StringFormat(L("ยกเลิก %s: ความมั่นใจต่ำ", "Cancelled %s: low confidence"), dir > 0 ? "BUY STOP" : "SELL STOP"));
+         continue;
+      }
+      if(!confident)
+         continue;
+      double price = NormPrice(dir > 0 ? hi + buf : lo - buf);
+      // Price already beyond the edge (e.g. the EA started late): no chasing.
+      if(dir > 0 ? price <= ask + minDist : price >= bid - minDist)
+         continue;
+      string side = dir > 0 ? "BUY STOP" : "SELL STOP";
+      double lots = StopEntryLots(side, price, slDist);
+      if(lots <= 0 || !AcquireOrderLock())
+         continue;
+      double sl = NormPrice(dir > 0 ? price - slDist : price + slDist);
+      double tp = InpTP_ATR > 0 ? NormPrice(dir > 0 ? price + tpDist : price - tpDist) : 0;
+      ENUM_ORDER_TYPE_TIME tt = expiry > now + 60 ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
+      bool ok = dir > 0 ? trade.BuyStop(lots, price, _Symbol, sl, tp, tt, expiry, STOP_COMMENT_BUY)
+                        : trade.SellStop(lots, price, _Symbol, sl, tp, tt, expiry, STOP_COMMENT_SELL);
+      if(ok)
+      {
+         seAtr = atr[0];
+         ConsoleLog("INFO", StringFormat(L("วาง %s %.2f lot @ %s | SL %s | ถึง %s", "Placed %s %.2f lot @ %s | SL %s | until %s"), side, lots,
+                                         DoubleToString(price, _Digits), DoubleToString(sl, _Digits), TimeToString(expiry, TIME_MINUTES)));
+      }
+      else
+         NotifyFailure(StringFormat(L("วาง %s ไม่สำเร็จ: %d %s", "Placing %s failed: %d %s"), side, trade.ResultRetcode(), trade.ResultRetcodeDescription()));
+   }
+}
+
+// A deal that opened a position: when it came from one of the stop orders, record the entry like a market entry.
+void StopEntryFilled(ulong deal)
+{
+   ulong order = (ulong)HistoryDealGetInteger(deal, DEAL_ORDER);
+   if(order == 0 || !HistoryOrderSelect(order))
+      return;
+   ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)HistoryOrderGetInteger(order, ORDER_TYPE);
+   if(ot != ORDER_TYPE_BUY_STOP && ot != ORDER_TYPE_SELL_STOP)
+      return;
+   int    dir   = ot == ORDER_TYPE_BUY_STOP ? 1 : -1;
+   double price = HistoryDealGetDouble(deal, DEAL_PRICE);
+   double lots  = HistoryDealGetDouble(deal, DEAL_VOLUME);
+   double sl    = HistoryOrderGetDouble(order, ORDER_SL);
+   double atr   = seAtr;
+   if(atr <= 0) { double a[]; if(GetBuf(hATR, a)) atr = a[0]; }
+   CaptureEntry(dir, price, sl, atr, lots);
+   TesterSpreadCharge(lots);
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskMoney = RiskPerLot(MathAbs(price - sl)) * lots;
+   string msg = StringFormat(L("เปิด %s %.2f lot @ %s (คำสั่งรอ) | SL %s | เสี่ยง %.2f %s (%.2f%% ของ Equity)", "Opened %s %.2f lot @ %s (stop order) | SL %s | risk %.2f %s (%.2f%% of equity)"),
+                             dir > 0 ? "BUY" : "SELL", lots, DoubleToString(price, _Digits), DoubleToString(sl, _Digits),
+                             riskMoney, AccountInfoString(ACCOUNT_CURRENCY), eq > 0 ? riskMoney / eq * 100.0 : 0);
+   if(InpNotifyTrades) Notify(msg, "OPEN"); else ConsoleLog("OPEN", msg);
+   DeleteStopOrders(L("อีกฝั่งเปิดไม้แล้ว", "the other side filled"));
+}
+
 // Terminal-wide lock: only one chart of this symbol + magic may send an order within 10 s.
 bool AcquireOrderLock()
 {
@@ -1248,7 +1447,7 @@ void ManagePositions()
 //| Status / notifications                                           |
 //+------------------------------------------------------------------+
 // Why no new trade may be opened right now ("" = allowed).
-string BlockReason(int tradesToday, double profitToday)
+string BlockReason(int tradesToday, double profitToday, bool ignoreSpread = false)
 {
    if(TestActive())                       return StringFormat(L("ทดสอบระบบ %d/%d ไม้", "System test %d/%d trades"), testDone, InpTestTrades);
    if(paused && haltCode == 1)            return L("หยุด: พอร์ตลดลงเกินเพดาน - ตรวจแล้วกด Resume", "Halted: drawdown limit - review, then Resume");
@@ -1259,7 +1458,7 @@ string BlockReason(int tradesToday, double profitToday)
    if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
    if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");
    if(!InSession())                       return L("นอกเวลาเทรด", "Outside trading hours");
-   if(!SpreadOK())                        return L("สเปรดกว้างเกิน", "Spread too wide");
+   if(!ignoreSpread && !SpreadOK())       return L("สเปรดกว้างเกิน", "Spread too wide");
    if(!VolatilityOK())                    return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
    return "";
 }
