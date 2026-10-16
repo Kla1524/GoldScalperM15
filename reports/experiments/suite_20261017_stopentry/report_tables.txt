@@ -1,0 +1,14 @@
+Run                                       Net  AfterCost    PF    DD% BalDD% Trades   Win%  AvgTrade    ExpR  MaxLS
+D0_close_DEV                          1022.15    1022.15  1.23   8.36   7.67    209   43.5      4.89   0.124      9
+D0_close_VAL                          2222.58    2222.58  1.54   3.97   3.46    262   52.7      8.48   0.222      8
+D0_close_VALRT                        1638.34    1638.34   1.5   3.71   2.70    227   53.3      7.22   0.221      8
+SE_stop_DEV                           1272.59    1272.59   1.2   8.43   7.63    228   38.6      5.58   0.121      8
+SE_stop_VAL                           3492.12    3492.12  1.74      7   5.92    286   54.9     12.21   0.272      6
+SE_stop_VALRT                         2370.39    2370.39  1.61   6.24   5.66    250   54.4      9.48   0.237      6
+SE_stop_rnd_DEV                       1272.59    1272.59   1.2   8.43   7.63    228   38.6      5.58   0.121      8
+SE_stop_rnd_VAL                       3492.12    3492.12  1.74      7   5.92    286   54.9     12.21   0.272      6
+SE_stop_rnd_VALRT                     2368.73    2368.73  1.61   6.26   5.69    250   54.0      9.47   0.236      6
+
+News filter: trades removed (vs no news)
+
+Mode 3 funnel and reasons setups ended
