@@ -30,7 +30,7 @@ $ErrorActionPreference = 'Stop'
 # Only Get-LabSummary is needed from lab.ps1. Dot-source it FIRST: it sets $Term/$Editor for the
 # portable lab terminal, and the values below must win.
 . 'D:\EA_Trade_lab\repo\tools\lab.ps1'
-$Repo   = 'D:\EA_Trade_lab\repo'
+$Repo   = Split-Path $PSScriptRoot -Parent          # the repo / worktree this script belongs to
 $Mt5    = $Terminal                         # portable: program and data in one folder
 $Term   = "$Mt5\terminal64.exe"
 $Editor = "$Mt5\MetaEditor64.exe"
