@@ -13,12 +13,12 @@ The EA (InpConsole = true, live or demo chart) writes to MT5's common Files fold
   GS15_<symbol>_<magic>_log.txt       events (opened, closed, skipped, news, warnings)
   GS15_<symbol>_<magic>_account.txt   last account check (after the ACCOUNT command)
 and reads one command from GS15_<symbol>_<magic>_cmd.txt:
-  MODE1, MODE2, PAUSE, RESUME, CLOSEALL, TEST, ACCOUNT.
+  PAUSE, RESUME, CLOSEALL, TEST, ACCOUNT (v1.50 has one strategy - no trade modes).
 
 Start: GS15_Console.bat (double-click), or
   powershell -ExecutionPolicy Bypass -File tools\GS15_Console.ps1 [-Symbol GOLD] [-Magic 20261013] [-NoColor]
 
-Keys: P pause/resume - 1 / 2 trade mode - A account check - T system test - C close all
+Keys: P pause/resume - A account check - T system test - C close all
       L longer journal - O full log in Notepad - Q quit
 Best in Windows Terminal with Cascadia Mono / Consolas, window at least 54 x 22.
 #>
@@ -408,16 +408,9 @@ function Render-Main($st) {
         Add-KeyValue 'Open P/L' (Money $float $ccy) $ft
     } else { Add-KeyValue 'Position' 'No open position' 'Muted' }
 
-    # Mode & risk: the two modes as one group, the active one filled
-    Add-Edge 'mid' 'MODE & RISK'
-    $mb = @()
-    foreach ($m in @(@('1', 'Mode 1 one/day'), @('2', 'Mode 2 multi'), @('3', 'Mode 3 SMC'))) {
-        $view = if ($st['mode'] -eq $m[0]) { 'selected' } elseif ($script:Pending) { 'disabled' } else { 'normal' }
-        if ($mb.Count -gt 0) { $mb += , (Gap 1) }
-        $mb += , (Button $m[0] $m[1] $view)
-    }
-    Add-Row $mb
-    if (-not $script:Compact) { Add-Blank }
+    # Strategy & risk (v1.50: one strategy, no modes)
+    Add-Edge 'mid' 'STRATEGY & RISK'
+    Add-KeyValue 'Strategy' $(if ($st['modetext']) { $st['modetext'] } else { 'Asian-range breakout, one trade a day' })
     $tr = Dbl $st['risktarget']
     Add-KeyValue 'Target risk' $(if ($tr -gt 0) { '{0}% of equity per trade' -f $tr.ToString('N2', $script:Inv) } else { 'fixed lot (no risk target)' })
     $ra = Dbl $st['riskactual']
@@ -429,25 +422,6 @@ function Render-Main($st) {
     $streak = if ($st['streakmax'] -eq '0') { "$($st['streak']) (no halt)" } else { "$($st['streak']) of $($st['streakmax'])" }
     if ($script:Dense) { Add-KeyValue 'Guards' ("DD $guard $([char]0x00B7) losses $streak") }
     else { Add-KeyValue 'Drawdown' $guard; Add-KeyValue 'Losses in a row' $streak }
-
-    # Mode 3: what the SMC engine sees and what the current setup still needs
-    if ($st['mode'] -eq '3' -and $st.ContainsKey('smc_state')) {
-        Add-Edge 'mid' 'SMC SETUP'
-        $biasTone = switch ($st['smc_bias']) { 'BULLISH' { 'Positive' } 'BEARISH' { 'Negative' } default { 'Warning' } }
-        Add-KeyValue 'H1 bias' $st['smc_bias'] $biasTone $true
-        Add-KeyValue 'S / R zones' ('{0}  /  {1}' -f $st['smc_support'], $st['smc_resistance'])
-        Add-KeyValue 'Last CHoCH' $st['smc_choch']
-        $state = $st['smc_state']
-        $left = [int]$st['smc_expiry_bars']
-        $stateText = $state
-        if ($left -ge 0) { $stateText += "  $([char]0x00B7) $left M15 bars left" }
-        $stTone = switch -Regex ($state) { 'CONFIRMED|TRADED' { 'Positive' } 'READY|RETESTED|DETECTED|SUBMITTED' { 'Accent' } 'INVALID|EXPIRED' { 'Muted' } default { 'Muted' } }
-        Add-KeyValue 'Setup' $stateText $stTone
-        if ($st['smc_setup'] -ne '-' -and -not $script:Dense) { Add-KeyValue 'Setup ID' $st['smc_setup'] 'Muted' }
-        if (-not $script:Dense) { Add-KeyValue 'OB / FVG' ('{0}  /  {1}' -f $st['smc_ob'], $st['smc_fvg']) }
-        foreach ($l in (Wrap ("Next: " + $st['smc_missing']) ($iw) 2)) { Add-Row @(@($l, 'Warning', 'PanelBg')) }
-        if ($st['smc_plan'] -and $st['smc_plan'] -ne '-') { Add-KeyValue 'Plan' $st['smc_plan'] }
-    }
 
     # Market & news
     Add-Edge 'mid' 'MARKET & NEWS'
@@ -595,29 +569,12 @@ function Read-Answer([switch]$Line) {
 #==================================================================
 # Keys
 #==================================================================
-$script:Mode3Text = @(
-    'Mode 3 - SMC (experimental): watches the whole trading session. H1 gives the bias and the support / resistance zones; M15 finds a change of character (CHoCH) with an order block and a fair value gap; an M5 candle must confirm the return to the order block.',
-    'Each setup is traded once, with a stop beyond the order block, a target before the next H1 zone (minimum 1.5 reward:risk after costs) and 0.5% risk. Trades close before the broker rollover.',
-    'Not validated by long backtests yet. Demo accounts only unless InpSmcAllowReal = true.'
-)
-$script:ModeText = @(
-    'Mode 1 - one bigger trade a day: the first range breakout only, 1% risk per trade (InpRiskPct). Tested 2018-2026 ($3,000): +89%, PF 1.45, max DD 14.8%.',
-    'Mode 2 - several smaller trades: every breakout that meets the rules, no daily limit, 0.5% risk per trade (InpMultiRiskPct). Needs about twice the balance of mode 1.',
-    'The 2nd-3rd trades of a day lose more often; mode 2 is steadier because each trade is smaller.'
-)
-
 function Invoke-Key([string]$key, $st) {
     if ($script:View -eq 'account') { $script:View = 'main'; return }
-    $isCommand = $key -in '1', '2', '3', 'P', 'A', 'T', 'C'
+    $isCommand = $key -in 'P', 'A', 'T', 'C'
     if ($isCommand -and $script:Pending) { $script:Feedback = @{ Text = 'Wait - the previous command is still being processed'; Tone = 'Warning' }; return }
     if ($isCommand -and $script:Age -gt 10) { $script:Feedback = @{ Text = 'Not sent: the EA is not updating (MT5 closed or EA removed)'; Tone = 'Negative' }; return }
     switch ($key) {
-        { $_ -in '1', '2', '3' } {
-            if ($st['mode'] -eq $key) { $script:Feedback = @{ Text = "Mode $key is already active"; Tone = 'Muted' }; return }
-            $text = if ($key -eq '3') { $script:Mode3Text } else { $script:ModeText }
-            Render-Dialog "SWITCH TO MODE $key" ($text + @('', "Current: $($st['modetext'])")) "Switch to mode $key?   Y yes   N no"
-            if ((Read-Answer) -match '^[yY]') { Send-Command "MODE$key" "switch to mode $key" } else { $script:Feedback = @{ Text = 'Mode not changed'; Tone = 'Muted' } }
-        }
         'P' { if ($st['paused'] -eq '1') { Send-Command 'RESUME' 'resume' } else { Send-Command 'PAUSE' 'pause' } }
         'A' { Send-Command 'ACCOUNT' 'account check' }
         'T' {

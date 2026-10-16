@@ -1,29 +1,18 @@
 ﻿//+------------------------------------------------------------------+
 //|                                              GoldScalperM15.mq5  |
-//|  XAUUSD M15 intraday EA. Default (v1.30): Asian-range breakout    |
-//|  on volatile days, wide ATR stop, flat by 20:00 (no swap).         |
-//|  Other selectable strategies: EMA pullback, Donchian, RSI(2).     |
-//|  Fixed lot, ATR-based SL/TP, breakeven, trailing stop,            |
-//|  session / spread / daily-trade / daily-loss / news filters,      |
-//|  on-chart control panel and phone push notifications.             |
+//|  XAUUSD M15 intraday EA - one strategy (v1.50): Asian-range       |
+//|  breakout on volatile days, one trade a day, wide ATR stop, flat  |
+//|  by 20:00 server time (no swap). Risk-% sizing, news / spread /   |
+//|  daily-loss filters, risk-guard halts, panel, console, push.      |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.44"
-#define   VERSION_TEXT "1.44"
+#property version   "1.50"
+#define   VERSION_TEXT "1.50"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
 #include <Trade\Trade.mqh>
-#include "GS15_SMC.mqh"
-
-enum ENUM_STRATEGY
-{
-   STRAT_PULLBACK = 0,  // EMA pullback (v1.x)
-   STRAT_BREAKOUT = 1,  // Donchian breakout with the trend
-   STRAT_RSI2     = 2,  // RSI(2) pullback in the trend
-   STRAT_ORB      = 3   // Opening Range Breakout (Asian session range)
-};
 
 enum ENUM_LANG
 {
@@ -37,82 +26,23 @@ enum ENUM_LOT_MODE
    LOT_RISK  = 1   // Risk % of equity (Equity x Risk% / SL)
 };
 
-enum ENUM_TRADE_STYLE
-{
-   STYLE_ONE   = 1,  // Mode 1: one bigger trade a day
-   STYLE_MULTI = 2,  // Mode 2: several smaller trades (no daily limit)
-   STYLE_SMC   = 3   // Mode 3: SMC - FVG + CHoCH + OB (experimental)
-};
-
 //--- inputs
 input group "=== General ==="
-input ENUM_TRADE_STYLE InpTradeStyle     = STYLE_ONE; // Trade mode (can be switched with the panel buttons)
-input double          InpMultiRiskPct    = 0.5;       // Risk % per trade in mode 2
 input ENUM_LOT_MODE   InpLotMode         = LOT_RISK;  // Lot sizing (risk % follows the account size)
 input double          InpLots            = 0.01;      // Fixed lot (when lot sizing = fixed)
-input double          InpRiskPct         = 1.0;       // Risk % per trade in mode 1 (when lot sizing = risk %)
+input double          InpRiskPct         = 0.5;       // Risk % of equity per trade (when lot sizing = risk %)
 input ulong           InpMagic           = 20261013;  // Magic number
 input ENUM_TIMEFRAMES InpTF              = PERIOD_M15;// Signal timeframe
-input ENUM_STRATEGY   InpStrategy        = STRAT_ORB; // Strategy
 input bool            InpAllowBuy        = true;      // Allow buys
 input bool            InpAllowSell       = true;      // Allow sells
-
-enum ENUM_SMC_TP
-{
-   SMC_TP_ZONE  = 0,   // Nearest H1 support / resistance zone
-   SMC_TP_FIXEDR = 1   // Fixed multiple of the stop distance (InpSmcTpR)
-};
-
-input group "=== Mode 3: SMC (FVG + CHoCH + OB) - experimental ==="
-input ENUM_TIMEFRAMES InpSmcTfBias      = PERIOD_H1;  // [SMC] bias and support/resistance timeframe
-input ENUM_TIMEFRAMES InpSmcTfStructure = PERIOD_M15; // [SMC] CHoCH / order block / FVG timeframe
-input ENUM_TIMEFRAMES InpSmcTfEntry     = PERIOD_M5;  // [SMC] confirmation candle timeframe
-input int    InpSmcAtrPeriod      = 14;    // [SMC] ATR period (all SMC timeframes)
-input int    InpSmcPivotLeft      = 2;     // [SMC] swing pivot: bars to the left
-input int    InpSmcPivotRight     = 2;     // [SMC] swing pivot: bars to the right (confirmation delay)
-input bool   InpSmcBiasFilter     = true;  // [SMC] trade only in the H1 bias direction (skip neutral)
-input bool   InpSmcBiasLoose      = false; // [SMC] H1 bias: BUY needs a higher high OR a higher low (SELL mirrored) instead of both
-input int    InpSmcSRLookback     = 100;   // [SMC] H1 bars used for support/resistance swings
-input double InpSmcSRTolAtr       = 0.2;   // [SMC] merge S/R levels within x H1 ATR
-input double InpSmcBreakBufAtr    = 0.1;   // [SMC] CHoCH close must clear the swing by x M15 ATR
-input int    InpSmcObMaxBack      = 10;    // [SMC] order block: max bars back from the CHoCH bar
-input double InpSmcDispAtr        = 1.0;   // [SMC] displacement: impulse candle body >= x M15 ATR
-input double InpSmcFvgMinAtr      = 0.1;   // [SMC] minimum FVG width, x M15 ATR
-input int    InpSmcFvgWindow      = 3;     // [SMC] FVG must form within x bars after the CHoCH bar
-input bool   InpSmcRequireOverlap = false; // [SMC] entry zone = OB/FVG overlap only (skip if none)
-input double InpSmcRiskPct        = 0.5;   // [SMC] risk % of equity per trade
-input double InpSmcMinRR          = 1.5;   // [SMC] minimum reward:risk after costs
-input double InpSmcSlBufAtr       = 0.2;   // [SMC] SL buffer beyond OB / setup swing, x M15 ATR
-input double InpSmcTpBufAtr       = 0.1;   // [SMC] TP placed x M15 ATR before the H1 zone
-input ENUM_SMC_TP InpSmcTpMode    = SMC_TP_ZONE; // [SMC] take-profit: nearest H1 zone or a fixed R multiple
-input double InpSmcTpR            = 2.0;   // [SMC] fixed-R mode: TP = entry +/- x times the entry-to-SL distance
-input double InpSmcTpMinDistAtr   = 0.0;   // [SMC] zone mode: skip H1 zones nearer than x H1 ATR, use the next one (0 = off)
-input int    InpSmcExpiryBars     = 16;    // [SMC] setup expires after x M15 bars
-input int    InpSmcRolloverHour   = 0;     // [SMC] broker rollover (swap) hour, server time (XM: 00:00)
-input int    InpSmcNoEntryBeforeMin = 60;  // [SMC] no entries x minutes before the rollover
-input int    InpSmcNoEntryAfterMin  = 60;  // [SMC] no entries x minutes after the rollover
-input int    InpSmcCloseBeforeMin = 15;    // [SMC] close mode-3 trades x minutes before the rollover
-input bool   InpSmcAllowReal      = false; // [SMC] allow mode 3 on a real account (demo-only until verified)
-input int    InpSmcLookbackBars   = 300;   // [SMC] M15 bars loaded for structure
-input bool   InpSmcDraw           = true;  // [SMC] draw zones, OB, FVG and CHoCH on the chart
 
 input group "=== Entry signal ==="
 input ENUM_TIMEFRAMES InpTrendTF = PERIOD_CURRENT; // Trend EMA timeframe (CURRENT = signal timeframe)
 input int    InpTrendEMA    = 200;   // Trend EMA period
-input int    InpFastEMA     = 9;     // [Pullback] fast EMA
-input int    InpSlowEMA     = 21;    // [Pullback] slow EMA
-input int    InpBreakoutBars = 20;   // [Breakout] Donchian bars
-input int    InpRSI2Period  = 2;     // [RSI2] RSI period
-input double InpRSI2Entry   = 10.0;  // [RSI2] buy when RSI < x (sell when > 100-x)
-input double InpRSI2Exit    = 70.0;  // [RSI2] close buy when RSI > x (sell when < 100-x, 0 = off)
-input bool   InpUseTrend    = false; // Use the trend EMA filter (always on for Pullback)
-input int    InpRangeStartHour = 0;  // [ORB] range start (hour, server time)
-input int    InpRangeEndHour   = 8;  // [ORB] range end / breakouts from (hour, server time)
-input int    InpRSIPeriod   = 14;    // [Pullback] RSI period
-input double InpRSIBuyMin   = 50.0;  // [Pullback] min RSI for buys
-input double InpRSIBuyMax   = 70.0;  // [Pullback] max RSI for buys (no chasing)
-input double InpRSISellMin  = 30.0;  // [Pullback] min RSI for sells (no chasing)
-input double InpRSISellMax  = 50.0;  // [Pullback] max RSI for sells
+input bool   InpUseTrend    = false; // Also require the close beyond the trend EMA
+input int    InpRangeStartHour = 0;  // Range start (hour, server time)
+input int    InpRangeEndHour   = 8;  // Range end / breakouts from (hour, server time)
+input int    InpRSIPeriod   = 14;    // RSI period (confidence score, journal)
 
 input group "=== SL / TP (multiples of ATR) ==="
 input int    InpATRPeriod   = 14;    // ATR period
@@ -128,11 +58,11 @@ input int    InpEndHour         = 18;   // No new trades from (hour, server time
 input double InpMaxSpread       = 1.00; // Max spread (price units, e.g. 0.40 = 40 cents)
 input double InpMinATR          = 0.0;  // Min ATR (price units, 0 = off)
 input double InpMinDailyATRPct  = 1.6;  // Min daily ATR as % of price (0 = off): trade only volatile days
-input bool   InpStrictRisk      = true; // Skip a trade if its real risk (vs equity) exceeds the current mode's % (risk-% sizing)
+input bool   InpStrictRisk      = true; // Skip a trade if its real risk (vs equity) exceeds the risk % (risk-% sizing)
 input int    InpSlippagePts     = 30;   // Slippage allowance at the SL (points), counted in the real risk
 input double InpCommissionLot   = 0.0;  // Round-turn commission per 1 lot (account currency; XM Standard = 0)
 input double InpMaxRiskPct      = 5.0;  // Hard cap: skip if the SL would lose more than % of equity (0 = off)
-input int    InpMaxTradesPerDay = 1;    // Max trades per day in mode 1 (0 = unlimited)
+input int    InpMaxTradesPerDay = 1;    // Trades per day (the first breakout of the day; 0 = unlimited, not recommended)
 input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
 input double InpMaxDDPct        = 20.0; // Halt: pause when equity falls this % below its peak (0 = off)
 input int    InpMaxLossStreak   = 5;    // Halt: pause after this many losing trades in a row (0 = off)
@@ -146,8 +76,8 @@ input group "=== News filter (MT5 economic calendar) ==="
 input bool   InpNewsFilter       = true;   // Enable the news filter
 input string InpNewsCurrencies   = "USD";  // Currencies to watch (comma separated, e.g. USD,EUR)
 input bool   InpNewsHighOnly     = true;   // true = high impact only, false = medium + high
-input int    InpNewsMinsBefore   = 30;     // No new trades before the event (minutes)
-input int    InpNewsMinsAfter    = 30;     // No new trades after the event (minutes)
+input int    InpNewsMinsBefore   = 15;     // No new trades before the event (minutes)
+input int    InpNewsMinsAfter    = 15;     // No new trades after the event (minutes)
 input string InpNewsOnlyEvents   = "";     // Only these events ("" = all of the chosen impact), comma separated parts of the name, e.g. Nonfarm Payrolls,CPI,FOMC,Fed Interest Rate Decision
 input bool   InpNewsClosePos     = false;  // Close open trades when a news window starts
 input bool   InpNewsInTester     = true;   // Strategy Tester: apply the filter from the exported news file
@@ -186,7 +116,6 @@ input int    InpLossCooldownMin = 20;   // Pause after a losing trade (minutes, 
 input bool   InpJournal         = true; // Log every trade + loss reasons to CSV (Common\Files)
 input int    InpTesterHaltDays  = 0;     // Tester only: after a risk-guard halt, 0 = count and carry on, N = stay paused N days then resume (simulated review), -1 = stay paused to the end
 input double InpTesterSpreadMult = 1.0;  // Tester only: spread stress - the spread filter sees spread x this, and (x - 1) x spread is charged per entry
-input bool   InpProbeLog        = false; // Research: log signals skipped because a position is open (modes 1/2) and every mode-3 confirmation, with MFE/MAE after 4/8/16/32 M15 bars - no trades
 input int    InpMinConfidence   = 1;    // Min confidence score 0-4 (D1 trend, H1 trend, ADX 20-30, strong RSI; 0 = off)
 
 //--- globals
@@ -208,8 +137,7 @@ struct TradeInfo
 };
 
 CTrade    trade;
-int       hFast, hSlow, hTrend, hRSI, hRSI2, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1;
-int       hSmcAtrBias = INVALID_HANDLE, hSmcAtrStruct = INVALID_HANDLE;
+int       hTrend, hRSI, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1;
 TradeInfo ti;
 bool      tiValid       = false;
 // Lot settings in effect (inputs, or the account-check recommendation chosen in the popup).
@@ -242,9 +170,6 @@ int      testerHalts[3]  = {0, 0, 0};   // tester: how often each halt would hav
 datetime testerResumeAt  = 0;           // tester (InpTesterHaltDays > 0): simulated Resume time
 double   testerHaltDays  = 0;           // tester: days spent halted
 double   testerExtraCost = 0;           // tester (InpTesterSpreadMult > 1): extra spread charged
-ENUM_TRADE_STYLE styleRt = STYLE_ONE;   // mode in effect (input, or chosen with the panel buttons)
-string   gvStyle         = "";
-string   gvStyleIn       = "";          // the input value when the mode was chosen
 string   gvCooldown      = "";          // end of the loss cooldown, kept across restarts
 int      testDone        = 0;           // system-test trades opened so far
 CTrade   qtTrade;                       // Test button: own magic, so it never counts as a trade of the day
@@ -260,11 +185,6 @@ bool     showPanel       = false;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   if(InpFastEMA >= InpSlowEMA)
-   {
-      Print("InpFastEMA must be smaller than InpSlowEMA");
-      return INIT_PARAMETERS_INCORRECT;
-   }
    if(InpLotMode == LOT_RISK && (InpRiskPct <= 0 || (InpMaxRiskPct > 0 && InpRiskPct > InpMaxRiskPct)))
    {
       Print("InpRiskPct must be > 0 and <= InpMaxRiskPct (", InpMaxRiskPct, "%) - otherwise every trade is skipped");
@@ -283,24 +203,18 @@ int OnInit()
    if(InpAccountCheck && !MQLInfoInteger(MQL_TESTER) && !accountCheckDone)
       accountCheckPending = true;
 
-   hFast  = iMA(_Symbol, InpTF, InpFastEMA,  0, MODE_EMA, PRICE_CLOSE);
-   hSlow  = iMA(_Symbol, InpTF, InpSlowEMA,  0, MODE_EMA, PRICE_CLOSE);
    ENUM_TIMEFRAMES trendTF = (InpTrendTF == PERIOD_CURRENT) ? InpTF : InpTrendTF;
    hTrend = iMA(_Symbol, trendTF, InpTrendEMA, 0, MODE_EMA, PRICE_CLOSE);
    hRSI   = iRSI(_Symbol, InpTF, InpRSIPeriod, PRICE_CLOSE);
-   hRSI2  = iRSI(_Symbol, InpTF, InpRSI2Period, PRICE_CLOSE);
    hATR   = iATR(_Symbol, InpTF, InpATRPeriod);
    hATRD1 = iATR(_Symbol, PERIOD_D1, 14);
    hEmaH1 = iMA(_Symbol, PERIOD_H1, 200, 0, MODE_EMA, PRICE_CLOSE);   // journal / diagnosis only
    hEmaD1 = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_EMA, PRICE_CLOSE);
    hAdxH1 = iADX(_Symbol, PERIOD_H1, 14);
-   hSmcAtrBias   = iATR(_Symbol, InpSmcTfBias, InpSmcAtrPeriod);
-   hSmcAtrStruct = iATR(_Symbol, InpSmcTfStructure, InpSmcAtrPeriod);
 
-   if(hFast == INVALID_HANDLE || hSlow == INVALID_HANDLE || hTrend == INVALID_HANDLE ||
-      hRSI == INVALID_HANDLE || hRSI2 == INVALID_HANDLE || hATR == INVALID_HANDLE ||
+   if(hTrend == INVALID_HANDLE || hRSI == INVALID_HANDLE || hATR == INVALID_HANDLE ||
       hATRD1 == INVALID_HANDLE || hEmaH1 == INVALID_HANDLE || hEmaD1 == INVALID_HANDLE ||
-      hAdxH1 == INVALID_HANDLE || hSmcAtrBias == INVALID_HANDLE || hSmcAtrStruct == INVALID_HANDLE)
+      hAdxH1 == INVALID_HANDLE)
    {
       Print("Indicator creation failed: ", GetLastError());
       return INIT_FAILED;
@@ -356,32 +270,6 @@ int OnInit()
       }
    }
 
-   // Trade mode chosen on the panel survives restarts, until the input itself is edited.
-   styleRt   = InpTradeStyle;
-   gvStyle   = PFX + "style_" + _Symbol + "_" + (string)InpMagic;
-   gvStyleIn = PFX + "styleIn_" + _Symbol + "_" + (string)InpMagic;
-   if(!MQLInfoInteger(MQL_TESTER))
-   {
-      if(GlobalVariableCheck(gvStyle) && GlobalVariableCheck(gvStyleIn) &&
-         (int)GlobalVariableGet(gvStyleIn) == (int)InpTradeStyle)
-         styleRt = (ENUM_TRADE_STYLE)(int)GlobalVariableGet(gvStyle);
-      else
-         SaveStyle();
-   }
-   if(InpSmcRiskPct <= 0 || (InpMaxRiskPct > 0 && InpSmcRiskPct > InpMaxRiskPct) || InpSmcPivotLeft < 1 || InpSmcPivotRight < 1)
-   {
-      Print("InpSmcRiskPct must be > 0 and <= InpMaxRiskPct, SMC pivots >= 1");
-      return INIT_PARAMETERS_INCORRECT;
-   }
-   SmcRestore();
-   if(InpJournal && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
-      FileDelete(SmcJournalName(), FILE_COMMON);
-   if(InpMultiRiskPct <= 0 || (InpMaxRiskPct > 0 && InpMultiRiskPct > InpMaxRiskPct))
-   {
-      Print("InpMultiRiskPct must be > 0 and <= InpMaxRiskPct (", InpMaxRiskPct, "%)");
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
    showPanel = InpShowPanel && (!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_VISUAL_MODE));
    if(InpConsole && InpConsoleButton && !MQLInfoInteger(MQL_TESTER))
       CreateConsoleButton();
@@ -391,8 +279,6 @@ int OnInit()
    // Each single tester run starts a fresh journal (live trading appends).
    if(InpJournal && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
       FileDelete(JournalName(), FILE_COMMON);
-   if(InpProbeLog && MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
-      FileDelete(ProbeFileName(), FILE_COMMON);
    if(MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
       FileDelete(StringFormat("GS15_stress_%s_%I64u_tester.csv", _Symbol, InpMagic), FILE_COMMON);
 
@@ -422,18 +308,13 @@ void OnDeinit(const int reason)
       PrintFormat("Risk guards in this test: spread stress x%.2f, extra spread charged %.2f %s", InpTesterSpreadMult,
                   testerExtraCost, AccountInfoString(ACCOUNT_CURRENCY));
    ObjectsDeleteAll(0, PFX);
-   IndicatorRelease(hFast);
-   IndicatorRelease(hSlow);
    IndicatorRelease(hTrend);
    IndicatorRelease(hRSI);
-   IndicatorRelease(hRSI2);
    IndicatorRelease(hATR);
    IndicatorRelease(hATRD1);
    IndicatorRelease(hEmaH1);
    IndicatorRelease(hEmaD1);
    IndicatorRelease(hAdxH1);
-   IndicatorRelease(hSmcAtrBias);
-   IndicatorRelease(hSmcAtrStruct);
 }
 
 //+------------------------------------------------------------------+
@@ -525,8 +406,6 @@ void TestStep()
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   if(InpProbeLog)
-      ProbesOnTick();
    if(testerResumeAt > 0 && TimeCurrent() >= testerResumeAt)
    {
       // Tester, InpTesterHaltDays > 0: the simulated person reviews and presses Resume.
@@ -558,7 +437,7 @@ void OnTick()
       for(int i = PositionsTotal() - 1; i >= 0; i--)
       {
          ulong ticket = PositionGetTicket(i);
-         if(ticket > 0 && IsMine() && !IsSmcPosition() &&   // mode-3 trades follow the rollover rule
+         if(ticket > 0 && IsMine() &&
             (now.hour >= InpDailyCloseHour || (datetime)PositionGetInteger(POSITION_TIME) < today))
             ClosePosition(ticket, L("ปิดประจำวัน", "daily close"));
       }
@@ -572,13 +451,6 @@ void OnTick()
    }
 
    TrackOpenTrade();
-   SmcManagePositions();
-
-   if(styleRt == STYLE_SMC)
-   {
-      SmcOnTick();
-      return;
-   }
 
    if(!IsNewBar())
       return;
@@ -591,14 +463,8 @@ void OnTick()
          ti.backInside = true;
    }
 
-   ExitOnSignal();
-
    if(CountPositions() > 0)
-   {
-      if(InpProbeLog)
-         ProbeSkippedSignal();   // research: would this bar have been a trade without the open position?
       return;
-   }
 
    int    tradesToday;
    double profitToday;
@@ -638,118 +504,46 @@ int GetSignal()
    if(!GetBuf(hTrend, trend))
       return 0;
 
-   double o = iOpen(_Symbol, InpTF, 1);
-   double h = iHigh(_Symbol, InpTF, 1);
-   double l = iLow(_Symbol, InpTF, 1);
+   // Today's range between InpRangeStartHour and InpRangeEndHour (server time);
+   // signal on the first close beyond it after the range has formed.
    double c = iClose(_Symbol, InpTF, 1);
-
-   switch(InpStrategy)
+   datetime barTime = iTime(_Symbol, InpTF, 1);
+   MqlDateTime bt;
+   TimeToStruct(barTime, bt);
+   if(bt.hour < InpRangeEndHour)
+      return 0;
+   datetime day0 = barTime - (barTime % 86400);
+   datetime rs = day0 + InpRangeStartHour * 3600;
+   datetime re = day0 + InpRangeEndHour * 3600 - 1;
+   double hs[], ls[];
+   if(CopyHigh(_Symbol, InpTF, rs, re, hs) < 2 || CopyLow(_Symbol, InpTF, rs, re, ls) < 2)
+      return 0;
+   double rHigh = hs[ArrayMaximum(hs)];
+   double rLow  = ls[ArrayMinimum(ls)];
+   orbHigh = rHigh;
+   orbLow  = rLow;
+   static datetime rangeLogged = 0;   // console: report each day's range once
+   if(rangeLogged != day0)
    {
-      case STRAT_PULLBACK:
-      {
-         double fast[], slow[], rsi[];
-         if(!GetBuf(hFast, fast) || !GetBuf(hSlow, slow) || !GetBuf(hRSI, rsi))
-            return 0;
-         if(c > trend[0] && fast[0] > slow[0]       // uptrend
-            && l <= fast[0] && c > fast[0]           // dipped into EMA9 and closed back above
-            && c > o                                 // bullish candle
-            && rsi[0] >= InpRSIBuyMin && rsi[0] <= InpRSIBuyMax)
-            return 1;
-         if(c < trend[0] && fast[0] < slow[0]       // downtrend
-            && h >= fast[0] && c < fast[0]           // spiked into EMA9 and closed back below
-            && c < o                                 // bearish candle
-            && rsi[0] >= InpRSISellMin && rsi[0] <= InpRSISellMax)
-            return -1;
-         return 0;
-      }
-
-      case STRAT_BREAKOUT:
-      {
-         // close beyond the highest high / lowest low of the N bars before the signal bar
-         int hi = iHighest(_Symbol, InpTF, MODE_HIGH, InpBreakoutBars, 2);
-         int lo = iLowest(_Symbol, InpTF, MODE_LOW, InpBreakoutBars, 2);
-         if(hi < 0 || lo < 0)
-            return 0;
-         if(c > iHigh(_Symbol, InpTF, hi) && TrendOK(1, c, trend[0]))  return 1;
-         if(c < iLow(_Symbol, InpTF, lo)  && TrendOK(-1, c, trend[0])) return -1;
-         return 0;
-      }
-
-      case STRAT_ORB:
-      {
-         // Today's range between InpRangeStartHour and InpRangeEndHour (server time);
-         // signal on the first close beyond it after the range has formed.
-         datetime barTime = iTime(_Symbol, InpTF, 1);
-         MqlDateTime bt;
-         TimeToStruct(barTime, bt);
-         if(bt.hour < InpRangeEndHour)
-            return 0;
-         datetime day0 = barTime - (barTime % 86400);
-         datetime rs = day0 + InpRangeStartHour * 3600;
-         datetime re = day0 + InpRangeEndHour * 3600 - 1;
-         double hs[], ls[];
-         if(CopyHigh(_Symbol, InpTF, rs, re, hs) < 2 || CopyLow(_Symbol, InpTF, rs, re, ls) < 2)
-            return 0;
-         double rHigh = hs[ArrayMaximum(hs)];
-         double rLow  = ls[ArrayMinimum(ls)];
-         orbHigh = rHigh;
-         orbLow  = rLow;
-         static datetime rangeLogged = 0;   // console: report each day's range once
-         if(rangeLogged != day0)
-         {
-            rangeLogged = day0;
-            double atrD1[];
-            double c0 = iClose(_Symbol, PERIOD_D1, 1);
-            string vol = (GetBuf(hATRD1, atrD1) && c0 > 0) ? StringFormat(" | ATR D1 %.2f%%", atrD1[0] / c0 * 100.0) : "";
-            ConsoleLog("INFO", StringFormat(L("กรอบวันนี้: %s - %s%s", "Today's range: %s - %s%s"),
-                                            DoubleToString(rLow, _Digits), DoubleToString(rHigh, _Digits), vol));
-         }
-         double prev  = iClose(_Symbol, InpTF, 2);
-         if(c > rHigh && prev <= rHigh && TrendOK(1, c, trend[0]))  return 1;
-         if(c < rLow  && prev >= rLow  && TrendOK(-1, c, trend[0])) return -1;
-         return 0;
-      }
-
-      case STRAT_RSI2:
-      {
-         double r[];
-         if(!GetBuf(hRSI2, r))
-            return 0;
-         if(r[0] < InpRSI2Entry && TrendOK(1, c, trend[0]))          return 1;
-         if(r[0] > 100.0 - InpRSI2Entry && TrendOK(-1, c, trend[0])) return -1;
-         return 0;
-      }
+      rangeLogged = day0;
+      double atrD1[];
+      double c0 = iClose(_Symbol, PERIOD_D1, 1);
+      string vol = (GetBuf(hATRD1, atrD1) && c0 > 0) ? StringFormat(" | ATR D1 %.2f%%", atrD1[0] / c0 * 100.0) : "";
+      ConsoleLog("INFO", StringFormat(L("กรอบวันนี้: %s - %s%s", "Today's range: %s - %s%s"),
+                                      DoubleToString(rLow, _Digits), DoubleToString(rHigh, _Digits), vol));
    }
+   double prev = iClose(_Symbol, InpTF, 2);
+   if(c > rHigh && prev <= rHigh && TrendOK(1, c, trend[0]))  return 1;
+   if(c < rLow  && prev >= rLow  && TrendOK(-1, c, trend[0])) return -1;
    return 0;
 }
 
-// Trend filter shared by the non-pullback strategies (can be switched off).
+// Optional trend filter (InpUseTrend).
 bool TrendOK(int dir, double close, double trendEma)
 {
    if(!InpUseTrend)
       return true;
    return dir > 0 ? close > trendEma : close < trendEma;
-}
-
-// Strategy-specific exits checked once per new bar.
-void ExitOnSignal()
-{
-   if(InpStrategy != STRAT_RSI2 || InpRSI2Exit <= 0)
-      return;
-
-   double r[];
-   if(!GetBuf(hRSI2, r))
-      return;
-
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0 || !IsMine())
-         continue;
-      bool isBuy = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY;
-      if((isBuy && r[0] > InpRSI2Exit) || (!isBuy && r[0] < 100.0 - InpRSI2Exit))
-         ClosePosition(ticket, "RSI2 exit");
-   }
 }
 
 //+------------------------------------------------------------------+
@@ -797,22 +591,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
    // Codes for the CSV, Thai text for the phone.
    string codes = "", thai = "";
-   bool   smcTrade = IsSmcPositionId((ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID));
-   if(smcTrade)
-   {
-      SmcJournal("CLOSE", exitCode, price, 0, 0, 0, 0, 0, pl);
-      tiValid = false;
-   }
    if(pl < 0)
    {
-      if(smcTrade)
-      {
-         codes = "SMC_" + exitCode;
-         thai  = L("โหมด 3 SMC: ", "mode 3 SMC: ") + (exitCode == "SL" ? L("โดน SL ใต้/เหนือ order block", "stopped beyond the order block")
-                                                                     : L("ปิดก่อน rollover หรือปิดมือ", "closed before rollover or by hand"));
-      }
-      else
-         LossReasons(exitCode, codes, thai);
+      LossReasons(exitCode, codes, thai);
       if(InpLossCooldownMin > 0)
       {
          cooldownUntil = TimeCurrent() + InpLossCooldownMin * 60;
@@ -871,7 +652,7 @@ void CaptureEntry(int dir, double entryPrice, double sl, double atr, double lots
    double l = iLow(_Symbol, InpTF, 1),  c = iClose(_Symbol, InpTF, 1);
    ti.bodyRatio = h > l ? MathAbs(c - o) / (h - l) : 0;
 
-   if(InpStrategy == STRAT_ORB && orbHigh > orbLow && atr > 0)
+   if(orbHigh > orbLow && atr > 0)
    {
       ti.rangeHigh = orbHigh;
       ti.rangeLow  = orbLow;
@@ -1025,11 +806,6 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
       ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
       AccountCheck(true);
    }
-   else if(sparam == PFX + "btnStyle1" || sparam == PFX + "btnStyle2")
-   {
-      ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
-      ChooseStyle(sparam == PFX + "btnStyle1" ? STYLE_ONE : STYLE_MULTI);
-   }
    else
       return;
 
@@ -1092,11 +868,11 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    if(lotModeRt == LOT_RISK && InpStrictRisk && equity > 0 &&
       riskMoney > equity * RiskPctEff() / 100.0 * 1.0001)
    {
-      Notify(StringFormat(L("ข้าม %s: Lot ขั้นต่ำ %.2f ถ้าโดน SL จะเสีย %.2f %s (%.2f%% ของ Equity %.2f) เกินเป้าโหมด %d ที่ %.1f%% "
+      Notify(StringFormat(L("ข้าม %s: Lot ขั้นต่ำ %.2f ถ้าโดน SL จะเสีย %.2f %s (%.2f%% ของ Equity %.2f) เกินเป้า %.1f%% "
                             "[SL %.2f + slippage %d จุด + คอมฯ] - ต้องมี Equity ~%.0f %s หรือใช้บัญชี Micro/Cent",
-                            "Skipped %s: min lot %.2f would lose %.2f %s at the SL (%.2f%% of equity %.2f), above the mode %d target of %.1f%% "
+                            "Skipped %s: min lot %.2f would lose %.2f %s at the SL (%.2f%% of equity %.2f), above the target of %.1f%% "
                             "[SL %.2f + slippage %d pts + commission] - needs equity of ~%.0f %s or a Micro/Cent account"),
-                          side, lots, riskMoney, ccy, riskMoney / equity * 100.0, equity, (int)styleRt, RiskPctEff(),
+                          side, lots, riskMoney, ccy, riskMoney / equity * 100.0, equity, RiskPctEff(),
                           slDist, InpSlippagePts, riskMoney / (RiskPctEff() / 100.0), ccy), "SKIP");
       return;
    }
@@ -1309,7 +1085,7 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, "symbol="   + _Symbol + "\r\n");
    FileWriteString(f, StringFormat("equity=%.2f %s\r\n", AccountInfoDouble(ACCOUNT_EQUITY), ccy));
    FileWriteString(f, StringFormat("balance=%.2f %s\r\n", AccountInfoDouble(ACCOUNT_BALANCE), ccy));
-   FileWriteString(f, "mode="     + (string)(int)styleRt + "\r\n");
+   FileWriteString(f, "mode=1\r\n");                               // single strategy (older consoles read this)
    FileWriteString(f, "modetext=" + StyleLine() + "\r\n");
    FileWriteString(f, "paused="   + (paused ? "1" : "0") + "\r\n");
    FileWriteString(f, "status="   + status + "\r\n");
@@ -1347,7 +1123,6 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, StringFormat("ddv=%.2f\r\nddmax=%.1f\r\nstreak=%d\r\nstreakmax=%d\r\n",
                                    equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, InpMaxDDPct, lossStreak, InpMaxLossStreak));
    FileWriteString(f, "servertime=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
-   SmcWriteStatus(f);
    FileClose(f);
 }
 
@@ -1370,18 +1145,7 @@ void ReadConsoleCommand()
    StringToUpper(cmd);
 
    if(cmd == "MODE1" || cmd == "MODE2" || cmd == "MODE3")
-   {
-      ENUM_TRADE_STYLE target = cmd == "MODE1" ? STYLE_ONE : cmd == "MODE2" ? STYLE_MULTI : STYLE_SMC;
-      if(target == styleRt)
-         ConsoleLog("INFO", StringFormat(L("โหมด %d ใช้อยู่แล้ว", "Mode %d is already active"), (int)target));
-      else
-      {
-         styleRt = target;
-         SaveStyle();
-         Notify(StringFormat(L("เปลี่ยนเป็นโหมด %d แล้ว (จาก console): %s", "Switched to mode %d (from the console): %s"),
-                             (int)target, StyleLine()));
-      }
-   }
+      ConsoleLog("INFO", L("v1.50 มีระบบเดียว (วันละ 1 ไม้) - ไม่มีการเปลี่ยนโหมด", "v1.50 has one strategy (one trade a day) - there are no modes to switch"));
    else if(cmd == "PAUSE" || cmd == "RESUME")
    {
       SetPaused(cmd == "PAUSE");
@@ -1494,14 +1258,9 @@ string BlockReason(int tradesToday, double profitToday)
    if(newsBlocked)                        return L("งดเทรด ช่วงข่าว", "News window - no trades");
    if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
    if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");
-   if(styleRt == STYLE_SMC)
-   {
-      string t = SmcTimeBlock();
-      if(t != "")                         return t;
-   }
-   else if(!InSession())                  return L("นอกเวลาเทรด", "Outside trading hours");
+   if(!InSession())                       return L("นอกเวลาเทรด", "Outside trading hours");
    if(!SpreadOK())                        return L("สเปรดกว้างเกิน", "Spread too wide");
-   if(styleRt != STYLE_SMC && !VolatilityOK()) return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
+   if(!VolatilityOK())                    return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
    return "";
 }
 
@@ -1553,7 +1312,7 @@ void Notify(string msg, string kind = "INFO")
 
 void CreatePanel()
 {
-   int h = 10 + LINE_H * PANEL_LINES + 104;
+   int h = 10 + LINE_H * PANEL_LINES + 72;
    string bg = PFX + "bg";
    ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_LEFT_UPPER);
@@ -1585,14 +1344,10 @@ void CreatePanel()
    MakeButton(PFX + "btnPause", InpPanelX + 10,  by, 130, 26);
    MakeButton(PFX + "btnClose", InpPanelX + 150, by, 130, 26);
    ObjectSetString(0, PFX + "btnClose", OBJPROP_TEXT, L("ปิดทุกไม้", "Close all"));
-   MakeButton(PFX + "btnStyle1", InpPanelX + 10,  by + 32, 130, 24);
-   MakeButton(PFX + "btnStyle2", InpPanelX + 150, by + 32, 130, 24);
-   ObjectSetString(0, PFX + "btnStyle1", OBJPROP_TEXT, L("โหมด 1: วันละ 1 ไม้", "Mode 1: one/day"));
-   ObjectSetString(0, PFX + "btnStyle2", OBJPROP_TEXT, L("โหมด 2: หลายไม้", "Mode 2: multi"));
-   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 64, 184, 24);
+   MakeButton(PFX + "btnAcct", InpPanelX + 10, by + 32, 184, 24);
    ObjectSetString(0, PFX + "btnAcct", OBJPROP_TEXT, L("ตรวจบัญชี / คำแนะนำ", "Account check / advice"));
    ObjectSetInteger(0, PFX + "btnAcct", OBJPROP_BGCOLOR, C'50,80,140');
-   MakeButton(PFX + "btnTest", InpPanelX + 200, by + 64, 80, 24);
+   MakeButton(PFX + "btnTest", InpPanelX + 200, by + 32, 80, 24);
    ObjectSetString(0, PFX + "btnTest", OBJPROP_TEXT, L("ทดสอบ", "Test"));
    ObjectSetInteger(0, PFX + "btnTest", OBJPROP_BGCOLOR, C'120,90,30');
    ObjectSetInteger(0, PFX + "btnClose", OBJPROP_BGCOLOR, C'150,45,45');
@@ -1676,8 +1431,6 @@ void UpdatePanel(int tradesToday, double profitToday)
    string bp = PFX + "btnPause";
    ObjectSetString(0, bp, OBJPROP_TEXT, paused ? L("เทรดต่อ", "Resume") : L("หยุดชั่วคราว", "Pause"));
    ObjectSetInteger(0, bp, OBJPROP_BGCOLOR, paused ? C'40,130,70' : C'180,120,30');
-   ObjectSetInteger(0, PFX + "btnStyle1", OBJPROP_BGCOLOR, styleRt == STYLE_ONE   ? C'40,130,70' : C'60,64,80');
-   ObjectSetInteger(0, PFX + "btnStyle2", OBJPROP_BGCOLOR, styleRt == STYLE_MULTI ? C'40,130,70' : C'60,64,80');
 
    ChartRedraw();
 }
@@ -2223,589 +1976,6 @@ double RiskPerLot(double slDist)
 }
 
 //+------------------------------------------------------------------+
-//| Mode 3: SMC (FVG + CHoCH + OB) - state machine and execution      |
-//| Signal rules live in GS15_SMC.mqh; docs/SMC_RULES.md lists them.  |
-//+------------------------------------------------------------------+
-enum ENUM_SMC_STATE
-{
-   SMC_NONE = 0, SMC_DETECTED, SMC_READY, SMC_RETESTED, SMC_CONFIRMED,
-   SMC_SUBMITTED, SMC_TRADED, SMC_INVALIDATED, SMC_EXPIRED
-};
-
-SmcSetup       smc;
-ENUM_SMC_STATE smcState      = SMC_NONE;
-string         smcId         = "";
-string         smcNote       = "";        // why the setup ended, or what it waits for
-datetime       smcExpiry     = 0;
-int            smcRetries    = 0;
-ulong          smcPosId      = 0;
-bool           smcInit       = false;
-datetime       smcLastH1     = 0, smcLastM15 = 0, smcLastM5 = 0;
-int            smcBias       = 0;
-bool           smcAllowBuy   = false;   // H1 structure allows a BUY / a SELL (strict or loose bias rule)
-bool           smcAllowSell  = false;
-bool SmcDirAllowed(int dir) { return dir > 0 ? smcAllowBuy : smcAllowSell; }
-SmcZone        smcZones[];
-double         smcAtrH1      = 0, smcAtrM15 = 0;
-datetime       smcLastSwingUsed[2] = {0, 0};   // [0] bull, [1] bear: one CHoCH per swing
-datetime       smcLastTraded = 0;              // CHoCH time of the last traded setup (survives restarts)
-string         gvSmcTraded   = "";
-datetime       smcChochSeen  = 0;              // last CHoCH seen (any direction), for the console
-int            smcChochSeenDir = 0;
-double         smcPlanEntry = 0, smcPlanSl = 0, smcPlanTp = 0, smcPlanRR = 0, smcPlanRiskPct = 0;
-
-string SmcStateName(ENUM_SMC_STATE s)
-{
-   switch(s)
-   {
-      case SMC_DETECTED:    return "DETECTED";
-      case SMC_READY:       return "READY";
-      case SMC_RETESTED:    return "RETESTED";
-      case SMC_CONFIRMED:   return "CONFIRMED";
-      case SMC_SUBMITTED:   return "SUBMITTED";
-      case SMC_TRADED:      return "TRADED";
-      case SMC_INVALIDATED: return "INVALIDATED";
-      case SMC_EXPIRED:     return "EXPIRED";
-   }
-   return "NONE";
-}
-
-bool SmcActive()
-{
-   return smcState == SMC_DETECTED || smcState == SMC_READY || smcState == SMC_RETESTED || smcState == SMC_CONFIRMED;
-}
-
-string SmcDirText(int dir) { return dir > 0 ? "BUY" : "SELL"; }
-
-//--- journal --------------------------------------------------------
-string SmcJournalName()
-{
-   return StringFormat("GS15_smc_journal_%s_%I64u%s.csv", _Symbol, InpMagic, MQLInfoInteger(MQL_TESTER) ? "_tester" : "");
-}
-
-void SmcJournal(string evt, string reason, double entry = 0, double sl = 0, double tp = 0, double rr = 0,
-                double lots = 0, double riskPct = 0, double pl = 0)
-{
-   int f = FileOpen(SmcJournalName(), FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ, ',');
-   if(f == INVALID_HANDLE)
-      return;
-   if(FileSize(f) == 0)
-      FileWrite(f, "time", "event", "setup_id", "dir", "state", "reason", "ob_lo", "ob_hi", "fvg_lo", "fvg_hi",
-                "entry", "sl", "tp", "rr", "lots", "risk_pct", "pl");
-   FileSeek(f, 0, SEEK_END);
-   FileWrite(f, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS), evt, smcId, smc.dir > 0 ? "BUY" : smc.dir < 0 ? "SELL" : "",
-             SmcStateName(smcState), reason, DoubleToString(smc.obLo, _Digits), DoubleToString(smc.obHi, _Digits),
-             smc.hasFvg ? DoubleToString(smc.fvgLo, _Digits) : "", smc.hasFvg ? DoubleToString(smc.fvgHi, _Digits) : "",
-             DoubleToString(entry, _Digits), DoubleToString(sl, _Digits), DoubleToString(tp, _Digits),
-             DoubleToString(rr, 2), DoubleToString(lots, 2), DoubleToString(riskPct, 3), DoubleToString(pl, 2));
-   FileClose(f);
-}
-
-void SmcEnd(ENUM_SMC_STATE s, string why)
-{
-   smcState = s;
-   smcNote  = why;
-   SmcJournal(s == SMC_EXPIRED ? "EXPIRED" : "INVALIDATED", why);
-   ConsoleLog("SKIP", StringFormat("SMC %s setup %s %s: %s", SmcDirText(smc.dir), smcId, s == SMC_EXPIRED ? "expired" : "cancelled", why));
-}
-
-//--- data -----------------------------------------------------------
-// Closed bars only (shift 1), oldest first, with the ATR of each bar aligned.
-bool SmcLoad(ENUM_TIMEFRAMES tf, int handle, int count, MqlRates &r[], double &atr[])
-{
-   ArraySetAsSeries(r, false);
-   ArraySetAsSeries(atr, false);
-   int n = CopyRates(_Symbol, tf, 1, count, r);
-   if(n < 50)
-      return false;
-   if(CopyBuffer(handle, 0, 1, n, atr) != n)
-      return false;
-   return true;
-}
-
-int SmcIndexOf(const MqlRates &r[], datetime t)
-{
-   for(int i = ArraySize(r) - 1; i >= 0; i--)
-      if(r[i].time == t) return i;
-   return -1;
-}
-
-//--- time policy ----------------------------------------------------
-// Minutes from now to the broker rollover (InpSmcRolloverHour, server time) and since the last one.
-void SmcRolloverClock(int &toRoll, int &sinceRoll)
-{
-   MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   int now  = dt.hour * 60 + dt.min;
-   int roll = InpSmcRolloverHour * 60;
-   toRoll    = (roll - now + 1440) % 1440;
-   sinceRoll = (now - roll + 1440) % 1440;
-}
-
-bool SmcSessionOpen()
-{
-   MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   datetime nowSec = (datetime)(dt.hour * 3600 + dt.min * 60 + dt.sec);
-   datetime from, to;
-   bool any = false;
-   for(uint i = 0; SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dt.day_of_week, i, from, to); i++)
-   {
-      any = true;
-      if(to == 0) to = 86400;
-      if(nowSec >= from && nowSec < to) return true;
-   }
-   return !any;   // no schedule published: rely on quotes and spread checks
-}
-
-// Mode-3-only entry blocks ("" = allowed).
-string SmcTimeBlock()
-{
-   if(!InpSmcAllowReal && AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_REAL)
-      return L("โหมด 3 ยังใช้ได้เฉพาะบัญชี Demo (InpSmcAllowReal)", "Mode 3 is demo-only until verified (InpSmcAllowReal)");
-   int toRoll, sinceRoll;
-   SmcRolloverClock(toRoll, sinceRoll);
-   if(toRoll <= InpSmcNoEntryBeforeMin)  return L("โหมด 3: ใกล้เวลา rollover - งดเปิดไม้", "Mode 3: rollover soon - no entries");
-   if(sinceRoll < InpSmcNoEntryAfterMin) return L("โหมด 3: เพิ่งผ่าน rollover - งดเปิดไม้", "Mode 3: just after rollover - no entries");
-   if(!SmcSessionOpen())                 return L("โหมด 3: นอกเวลาซื้อขายของ symbol", "Mode 3: symbol session closed");
-   if(!MQLInfoInteger(MQL_TESTER) && TimeCurrent() - (datetime)SymbolInfoInteger(_Symbol, SYMBOL_TIME) > 120)
-      return L("โหมด 3: ราคาไม่อัปเดต", "Mode 3: no fresh quotes");
-   return "";
-}
-
-bool IsSmcPosition()
-{
-   return StringFind(PositionGetString(POSITION_COMMENT), "SMC") == 0;
-}
-
-bool IsSmcPositionId(ulong posId)
-{
-   if(posId == 0) return false;
-   if(posId == smcPosId) return true;
-   if(!HistorySelectByPosition(posId)) return false;
-   for(int i = 0; i < HistoryDealsTotal(); i++)
-   {
-      ulong d = HistoryDealGetTicket(i);
-      if(d > 0 && HistoryDealGetInteger(d, DEAL_ENTRY) == DEAL_ENTRY_IN)
-         return StringFind(HistoryDealGetString(d, DEAL_COMMENT), "SMC") == 0;
-   }
-   return false;
-}
-
-// Every tick, in every mode: mode-3 trades never stay through the rollover.
-void SmcManagePositions()
-{
-   int toRoll, sinceRoll;
-   SmcRolloverClock(toRoll, sinceRoll);
-   if(toRoll > InpSmcCloseBeforeMin)
-      return;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      ulong t = PositionGetTicket(i);
-      if(t > 0 && IsMine() && IsSmcPosition())
-         ClosePosition(t, L("โหมด 3 ปิดก่อน rollover", "mode 3 close before rollover"));
-   }
-}
-
-//--- engine updates -------------------------------------------------
-void SmcUpdateH1()
-{
-   MqlRates r[]; double a[];
-   if(!SmcLoad(InpSmcTfBias, hSmcAtrBias, InpSmcSRLookback + InpSmcPivotLeft + InpSmcPivotRight + 5, r, a))
-      return;
-   int n = ArraySize(r);
-   SmcSwing s[];
-   SmcCollectSwings(r, n - 1, InpSmcPivotLeft, InpSmcPivotRight, PeriodSeconds(InpSmcTfBias), s);
-   int  prevBias  = smcBias;
-   bool prevAllow = SmcActive() && SmcDirAllowed(smc.dir);
-   smcBias      = SmcBias(s);
-   smcAllowBuy  = SmcBiasAllows(s, 1, InpSmcBiasLoose);
-   smcAllowSell = SmcBiasAllows(s, -1, InpSmcBiasLoose);
-   smcAtrH1 = a[n - 1];
-   SmcBuildZones(s, InpSmcSRTolAtr * smcAtrH1, smcZones);
-   // Strict: SmcDirAllowed(dir) is (smcBias == dir), so this is the original rule.
-   if(InpSmcBiasFilter && SmcActive() && !SmcDirAllowed(smc.dir) && (InpSmcBiasLoose ? prevAllow : prevBias != smcBias))
-      SmcEnd(SMC_INVALIDATED, InpSmcBiasLoose ? StringFormat("H1 structure no longer allows a %s (loose bias)", smc.dir > 0 ? "BUY" : "SELL")
-                                              : smcBias == 0 ? "H1 bias became neutral" : "H1 bias flipped");
-}
-
-void SmcUpdateStructure()
-{
-   MqlRates r[]; double a[];
-   if(!SmcLoad(InpSmcTfStructure, hSmcAtrStruct, InpSmcLookbackBars, r, a))
-      return;
-   int n = ArraySize(r), m = n - 1;
-   int per = PeriodSeconds(InpSmcTfStructure);
-   smcAtrM15 = a[m];
-
-   // 1) Existing setup: re-locate it in the new arrays, then FVG / invalidation / expiry.
-   if(SmcActive())
-   {
-      int k = SmcIndexOf(r, smc.chochTime), ob = SmcIndexOf(r, smc.obTime);
-      if(k < 0 || ob < 0)
-         SmcEnd(SMC_EXPIRED, "setup bars left the lookback");
-      else
-      {
-         int shift = k - smc.breakIdx;
-         smc.breakIdx = k; smc.obIdx = ob; smc.impulseStart += shift;
-         if(smc.hasFvg) smc.fvgC += shift;
-         if(smcState == SMC_DETECTED)
-         {
-            SmcRefreshFvg(r, a, m, InpSmcFvgWindow, InpSmcFvgMinAtr, per, smc);
-            if(smc.hasFvg)
-               SmcMakeReady();
-            else if(m >= k + InpSmcFvgWindow)
-               SmcEnd(SMC_INVALIDATED, StringFormat("no FVG within %d bars of the CHoCH", InpSmcFvgWindow));
-         }
-         if(SmcActive() && smcState != SMC_DETECTED)
-         {
-            if(smc.dir > 0 && r[m].close < smc.obLo)      SmcEnd(SMC_INVALIDATED, "M15 closed below the order block");
-            else if(smc.dir < 0 && r[m].close > smc.obHi) SmcEnd(SMC_INVALIDATED, "M15 closed above the order block");
-            else if(TimeCurrent() >= smcExpiry)           SmcEnd(SMC_EXPIRED, StringFormat("no entry within %d M15 bars", InpSmcExpiryBars));
-         }
-      }
-   }
-
-   // 2) New CHoCH on the bar that just closed.
-   SmcSwing lvl;
-   int dir = SmcChochAt(r, a, m, InpSmcPivotLeft, InpSmcPivotRight, per, InpSmcBreakBufAtr, lvl);
-   if(dir == 0)
-      return;
-   smcChochSeen = r[m].time; smcChochSeenDir = dir;
-   int slot = dir > 0 ? 0 : 1;
-   if(lvl.time == smcLastSwingUsed[slot])
-      return;
-   smcLastSwingUsed[slot] = lvl.time;
-   if(SmcActive() && smc.dir != dir)
-      SmcEnd(SMC_INVALIDATED, "opposite CHoCH");
-   string tag = StringFormat("%s %s CHoCH %s", _Symbol, dir > 0 ? "bullish" : "bearish", TimeToString(r[m].time, TIME_DATE | TIME_MINUTES));
-   if(InpSmcBiasFilter && !SmcDirAllowed(dir))
-   {
-      ConsoleLog("SKIP", tag + StringFormat(" ignored: H1 bias is %s", smcBias > 0 ? "bullish" : smcBias < 0 ? "bearish" : "neutral"));
-      return;
-   }
-   if(r[m].time <= smcLastTraded)
-      return;   // already traded before a restart
-   SmcSetup st;
-   ZeroMemory(st);
-   if(!SmcBuildSetup(r, a, m, dir, lvl, per, InpSmcObMaxBack, InpSmcDispAtr, InpSmcFvgWindow, m, InpSmcFvgMinAtr, st))
-   {
-      ConsoleLog("SKIP", tag + StringFormat(" ignored: no displacement (body >= %.1f ATR) or no order block within %d bars", InpSmcDispAtr, InpSmcObMaxBack));
-      return;
-   }
-   if(SmcActive())
-      SmcEnd(SMC_INVALIDATED, "replaced by a newer CHoCH");
-   smc = st;
-   smcId = StringFormat("%s-%s-%s-%s", _Symbol, StringSubstr(EnumToString(InpSmcTfStructure), 7), dir > 0 ? "B" : "S",
-                        TimeToString(st.chochTime, TIME_DATE | TIME_MINUTES));
-   StringReplace(smcId, ".", ""); StringReplace(smcId, ":", ""); StringReplace(smcId, " ", "T");
-   smcState = SMC_DETECTED;
-   smcRetries = 0;
-   smcPlanEntry = smcPlanSl = smcPlanTp = smcPlanRR = smcPlanRiskPct = 0;
-   SmcJournal("DETECTED", StringFormat("CHoCH through %s, OB %s", DoubleToString(st.chochLevel, _Digits), TimeToString(st.obTime, TIME_DATE | TIME_MINUTES)));
-   ConsoleLog("INFO", StringFormat("SMC %s setup %s: CHoCH through %s, OB %s-%s", SmcDirText(dir), smcId,
-                                   DoubleToString(st.chochLevel, _Digits), DoubleToString(st.obLo, _Digits), DoubleToString(st.obHi, _Digits)));
-   if(smc.hasFvg)
-      SmcMakeReady();
-   else
-      smcNote = "waiting for an FVG";
-}
-
-void SmcMakeReady()
-{
-   double zlo, zhi;
-   if(!SmcEntryZone(smc, InpSmcRequireOverlap, zlo, zhi))
-   {
-      SmcEnd(SMC_INVALIDATED, "OB and FVG do not overlap (InpSmcRequireOverlap)");
-      return;
-   }
-   smcState  = SMC_READY;
-   smcExpiry = smc.readyTime + InpSmcExpiryBars * PeriodSeconds(InpSmcTfStructure);
-   smcNote   = "waiting for price to return to the zone";
-   SmcJournal("READY", StringFormat("FVG %s-%s, zone %s-%s", DoubleToString(smc.fvgLo, _Digits), DoubleToString(smc.fvgHi, _Digits),
-                                    DoubleToString(zlo, _Digits), DoubleToString(zhi, _Digits)));
-   ConsoleLog("INFO", StringFormat("SMC %s setup %s ready: zone %s-%s, FVG %s-%s, expires %s", SmcDirText(smc.dir), smcId,
-                                   DoubleToString(zlo, _Digits), DoubleToString(zhi, _Digits), DoubleToString(smc.fvgLo, _Digits),
-                                   DoubleToString(smc.fvgHi, _Digits), TimeToString(smcExpiry, TIME_DATE | TIME_MINUTES)));
-}
-
-void SmcUpdateEntryBar()
-{
-   if(smcState != SMC_READY && smcState != SMC_RETESTED)
-      return;
-   MqlRates b[];
-   ArraySetAsSeries(b, true);
-   if(CopyRates(_Symbol, InpSmcTfEntry, 1, 1, b) != 1)
-      return;
-   if(b[0].time < smc.readyTime)
-      return;   // only price action after the setup was complete counts
-   double zlo, zhi;
-   SmcEntryZone(smc, InpSmcRequireOverlap, zlo, zhi);
-   if(smcState == SMC_READY && SmcTouches(b[0], zlo, zhi))
-   {
-      smcState = SMC_RETESTED;
-      smcNote  = "zone touched - waiting for a confirmation candle";
-   }
-   if(SmcConfirmCandle(b[0], smc.dir, zlo, zhi))
-   {
-      smcState = SMC_CONFIRMED;
-      smcNote  = StringFormat("confirmed by the %s candle of %s", StringSubstr(EnumToString(InpSmcTfEntry), 7), TimeToString(b[0].time, TIME_MINUTES));
-      SmcJournal("CONFIRMED", smcNote);
-      if(InpProbeLog)
-      {
-         // Research: follow every confirmation, traded or not, with the stop the entry would use.
-         double px = smc.dir > 0 ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
-         double sl = smc.dir > 0 ? MathMin(smc.obLo, smc.structLo) - InpSmcSlBufAtr * smcAtrM15
-                                 : MathMax(smc.obHi, smc.structHi) + InpSmcSlBufAtr * smcAtrM15;
-         ProbeAdd(2, smcId, smc.dir, px, MathAbs(px - sl), 0);
-      }
-   }
-}
-
-// Called every tick in mode 3.
-void SmcOnTick()
-{
-   datetime h1  = iTime(_Symbol, InpSmcTfBias, 0);
-   datetime m15 = iTime(_Symbol, InpSmcTfStructure, 0);
-   datetime m5  = iTime(_Symbol, InpSmcTfEntry, 0);
-   if(h1 == 0 || m15 == 0 || m5 == 0)
-      return;
-   if(!smcInit)
-   {
-      smcInit = true;
-      SmcUpdateH1();
-      smcLastH1 = h1;
-   }
-   if(h1 != smcLastH1)   { smcLastH1 = h1;   SmcUpdateH1(); }
-   if(m15 != smcLastM15) { smcLastM15 = m15; SmcUpdateStructure(); SmcDraw(); }
-   if(m5 != smcLastM5)   { smcLastM5 = m5;   SmcUpdateEntryBar(); }
-   if(smcState == SMC_CONFIRMED)
-      SmcTryEnter();
-}
-
-//--- entry ----------------------------------------------------------
-void SmcSkip(string why)
-{
-   SmcEnd(SMC_INVALIDATED, why);
-   Notify(StringFormat(L("ข้าม SMC %s (%s): %s", "Skipped SMC %s (%s): %s"), SmcDirText(smc.dir), smcId, why), "SKIP");
-}
-
-void SmcTryEnter()
-{
-   if(CountPositions() > 0) { SmcSkip("a position of this EA is already open"); return; }
-   int    tradesToday; double profitToday;
-   GetTodayStats(tradesToday, profitToday);
-   string block = BlockReason(tradesToday, profitToday);
-   if(block != "") { SmcSkip("blocked: " + block); return; }
-
-   bool   isBuy = smc.dir > 0;
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(ask <= 0 || bid <= 0) { SmcSkip("no quotes"); return; }
-   double entry = isBuy ? ask : bid;
-   double atr   = smcAtrM15;
-   double sl    = isBuy ? MathMin(smc.obLo, smc.structLo) - InpSmcSlBufAtr * atr
-                        : MathMax(smc.obHi, smc.structHi) + InpSmcSlBufAtr * atr;
-   SmcZone z;
-   ZeroMemory(z);
-   double tp = 0;
-   if(InpSmcTpMode == SMC_TP_FIXEDR)
-   {
-      // Fixed R: the target is a multiple of the stop distance; no support/resistance zone needed.
-      if(isBuy ? sl >= entry : sl <= entry) { SmcSkip("stop is at or beyond the entry"); return; }
-      tp = isBuy ? entry + InpSmcTpR * (entry - sl) : entry - InpSmcTpR * (sl - entry);
-   }
-   else
-   {
-      bool haveTarget;
-      if(InpSmcTpMinDistAtr > 0)
-      {
-         double minDist = InpSmcTpMinDistAtr * smcAtrH1;
-         haveTarget = isBuy ? SmcResistanceBeyond(smcZones, entry, minDist, z) : SmcSupportBeyond(smcZones, entry, minDist, z);
-      }
-      else
-         haveTarget = isBuy ? SmcNearestResistance(smcZones, entry, z) : SmcNearestSupport(smcZones, entry, z);
-      if(!haveTarget) { SmcSkip(isBuy ? "no confirmed H1 resistance above price for a target" : "no confirmed H1 support below price for a target"); return; }
-      tp = isBuy ? z.lo - InpSmcTpBufAtr * atr : z.hi + InpSmcTpBufAtr * atr;
-   }
-   sl = NormPrice(sl); tp = NormPrice(tp);
-   if(isBuy ? (sl >= entry || tp <= entry) : (sl <= entry || tp >= entry))
-   { SmcSkip(StringFormat("target zone %s-%s is at or behind the entry - no room", DoubleToString(z.lo, _Digits), DoubleToString(z.hi, _Digits))); return; }
-
-   // Money per 1 lot from the server's own calculation, plus slippage allowance and commission.
-   ENUM_ORDER_TYPE type = isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   double lossLot = 0, gainLot = 0, slipLot = 0;
-   if(!OrderCalcProfit(type, _Symbol, 1.0, entry, sl, lossLot) || !OrderCalcProfit(type, _Symbol, 1.0, entry, tp, gainLot))
-   { SmcSkip("OrderCalcProfit failed"); return; }
-   slipLot = LossPerLot(InpSlippagePts * _Point);
-   double riskLot   = MathAbs(lossLot) + slipLot + InpCommissionLot;
-   double rewardLot = gainLot - InpCommissionLot;
-   double rr = riskLot > 0 ? rewardLot / riskLot : 0;
-   smcPlanEntry = entry; smcPlanSl = sl; smcPlanTp = tp; smcPlanRR = rr;
-   if(rr < InpSmcMinRR)
-   { SmcSkip(StringFormat("RR %.2f < %.2f after costs (target %s, stop %s)", rr, InpSmcMinRR, DoubleToString(tp, _Digits), DoubleToString(sl, _Digits))); return; }
-
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double lots = NormalizeLots(equity * RiskPctEff() / 100.0 / riskLot);
-   double cap = MaxLotCap(entry);
-   if(cap > 0 && lots > cap) lots = NormalizeLots(cap);
-   double riskMoney = riskLot * lots;
-   smcPlanRiskPct = equity > 0 ? riskMoney / equity * 100.0 : 0;
-   if(riskMoney > equity * RiskPctEff() / 100.0 * 1.0001)
-   { SmcSkip(StringFormat("min lot %.2f would risk %.2f (%.2f%%) > %.2f%% target", lots, riskMoney, smcPlanRiskPct, RiskPctEff())); return; }
-   if(InpMaxDailyLossPct > 0)
-   {
-      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-      double budget  = (balance - profitToday) * InpMaxDailyLossPct / 100.0 - MathMax(0.0, -profitToday);
-      if(riskMoney > budget)
-      { SmcSkip(StringFormat("daily loss budget left %.2f < risk %.2f", MathMax(0.0, budget), riskMoney)); return; }
-   }
-   // Broker constraints.
-   long   mode   = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
-   if(mode == SYMBOL_TRADE_MODE_DISABLED || mode == SYMBOL_TRADE_MODE_CLOSEONLY ||
-      (isBuy && mode == SYMBOL_TRADE_MODE_SHORTONLY) || (!isBuy && mode == SYMBOL_TRADE_MODE_LONGONLY))
-   { SmcSkip("symbol trade mode does not allow this order"); return; }
-   double minStop = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
-   double exitPx  = isBuy ? bid : ask;
-   if(MathAbs(exitPx - sl) < minStop || MathAbs(tp - exitPx) < minStop)
-   { SmcSkip("SL or TP closer than the broker stops level"); return; }
-
-   MqlTradeRequest req; MqlTradeCheckResult chk;
-   ZeroMemory(req); ZeroMemory(chk);
-   req.action = TRADE_ACTION_DEAL; req.symbol = _Symbol; req.volume = lots; req.type = type;
-   req.price = entry; req.sl = sl; req.tp = tp; req.deviation = 30; req.magic = InpMagic;
-   long fm = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
-   req.type_filling = (fm & SYMBOL_FILLING_FOK) != 0 ? ORDER_FILLING_FOK : (fm & SYMBOL_FILLING_IOC) != 0 ? ORDER_FILLING_IOC : ORDER_FILLING_RETURN;
-   if(!OrderCheck(req, chk) || (chk.retcode != 0 && chk.retcode != TRADE_RETCODE_DONE))
-   { SmcSkip(StringFormat("OrderCheck: %d %s", chk.retcode, chk.comment)); return; }
-   if(!AcquireOrderLock()) return;   // another chart is sending right now: try again next tick
-
-   smcState = SMC_SUBMITTED;
-   string comment = "SMC " + StringSubstr(smcId, StringLen(_Symbol) + 1);
-   bool ok = isBuy ? trade.Buy(lots, _Symbol, entry, sl, tp, comment) : trade.Sell(lots, _Symbol, entry, sl, tp, comment);
-   uint rc = trade.ResultRetcode();
-   if(ok && (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_PLACED) && trade.ResultDeal() > 0)
-   {
-      smcState = SMC_TRADED;
-      if(HistoryDealSelect(trade.ResultDeal()))
-         smcPosId = (ulong)HistoryDealGetInteger(trade.ResultDeal(), DEAL_POSITION_ID);
-      smcLastTraded = smc.chochTime;
-      if(!MQLInfoInteger(MQL_TESTER))
-         GlobalVariableSet(gvSmcTraded, (double)smcLastTraded);
-      double fill = trade.ResultPrice() > 0 ? trade.ResultPrice() : entry;
-      smcNote = "traded";
-      SmcJournal("OPEN", smcNote, fill, sl, tp, rr, lots, smcPlanRiskPct);
-      string msg = StringFormat(L("เปิด %s %.2f lot @ %s (โหมด 3 SMC %s) | SL %s | TP %s | RR %.2f | เสี่ยง %.2f %s (%.2f%%)",
-                                  "Opened %s %.2f lot @ %s (mode 3 SMC %s) | SL %s | TP %s | RR %.2f | risk %.2f %s (%.2f%%)"),
-                                SmcDirText(smc.dir), lots, DoubleToString(fill, _Digits), smcId, DoubleToString(sl, _Digits),
-                                DoubleToString(tp, _Digits), rr, riskMoney, AccountInfoString(ACCOUNT_CURRENCY), smcPlanRiskPct);
-      if(InpNotifyTrades) Notify(msg, "OPEN"); else ConsoleLog("OPEN", msg);
-      return;
-   }
-   if((rc == TRADE_RETCODE_REQUOTE || rc == TRADE_RETCODE_PRICE_CHANGED || rc == TRADE_RETCODE_PRICE_OFF) && smcRetries < 2)
-   {
-      smcRetries++;
-      smcState = SMC_CONFIRMED;   // re-evaluated (price, RR, risk) on the next tick
-      Print(StringFormat("SMC order %s: %d %s - retry %d at the next tick", smcId, rc, trade.ResultRetcodeDescription(), smcRetries));
-      return;
-   }
-   SmcSkip(StringFormat("order rejected: %d %s", rc, trade.ResultRetcodeDescription()));
-}
-
-//--- chart drawing (live, or visual tester) ------------------------
-void SmcRect(string name, datetime t1, double p1, datetime t2, double p2, color c)
-{
-   if(ObjectFind(0, name) < 0)
-   {
-      ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, p1, t2, p2);
-      ObjectSetInteger(0, name, OBJPROP_FILL, true);
-      ObjectSetInteger(0, name, OBJPROP_BACK, true);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   }
-   ObjectMove(0, name, 0, t1, p1);
-   ObjectMove(0, name, 1, t2, p2);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, c);
-}
-
-void SmcDraw()
-{
-   if(!InpSmcDraw || (MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_VISUAL_MODE)))
-      return;
-   datetime now = TimeCurrent(), end = now + 6 * PeriodSeconds(InpSmcTfStructure);
-   ObjectsDeleteAll(0, PFX + "smc_");
-   // Nearest H1 zones around price (these are rule-based levels, not guaranteed reactions).
-   double px = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   SmcZone z;
-   if(SmcNearestResistance(smcZones, px, z)) SmcRect(PFX + "smc_res", now - 48 * 3600, z.lo, end, z.hi + _Point, C'90,40,50');
-   if(SmcNearestSupport(smcZones, px, z))    SmcRect(PFX + "smc_sup", now - 48 * 3600, z.lo - _Point, end, z.hi, C'30,70,60');
-   if(smcState == SMC_NONE || smc.dir == 0 || (!SmcActive() && smcState != SMC_TRADED))
-      return;
-   SmcRect(PFX + "smc_ob", smc.obTime, smc.obLo, end, smc.obHi, smc.dir > 0 ? C'28,60,120' : C'110,40,60');
-   if(smc.hasFvg)
-      SmcRect(PFX + "smc_fvg", smc.fvgTime, smc.fvgLo, end, smc.fvgHi, C'40,60,90');
-   string ln = PFX + "smc_choch";
-   ObjectCreate(0, ln, OBJ_TREND, 0, smc.chochSwingTime, smc.chochLevel, smc.chochTime, smc.chochLevel);
-   ObjectSetInteger(0, ln, OBJPROP_COLOR, C'121,173,255');
-   ObjectSetInteger(0, ln, OBJPROP_STYLE, STYLE_DASH);
-   ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, ln, OBJPROP_HIDDEN, true);
-   ObjectSetString(0, ln, OBJPROP_TEXT, "CHoCH " + SmcDirText(smc.dir));
-}
-
-//--- console status --------------------------------------------------
-// What the current setup still needs, in plain words.
-string SmcMissing()
-{
-   if(InpSmcBiasFilter && !smcAllowBuy && !smcAllowSell)
-      return InpSmcBiasLoose ? "H1 structure allows neither side - waiting for a HH/HL or LH/LL" : "H1 bias is neutral - waiting for HH+HL or LH+LL";
-   if(!SmcActive() && smcState != SMC_SUBMITTED) return StringFormat("waiting for a %s CHoCH on %s",
-                                      smcBias > 0 ? "bullish" : smcBias < 0 ? "bearish" : "", StringSubstr(EnumToString(InpSmcTfStructure), 7));
-   return smcNote;
-}
-
-void SmcWriteStatus(int f)
-{
-   SmcZone z;
-   double px = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   string sup = SmcNearestSupport(smcZones, px, z) ? DoubleToString(z.lo, _Digits) + "-" + DoubleToString(z.hi, _Digits) : "-";
-   string res = SmcNearestResistance(smcZones, px, z) ? DoubleToString(z.lo, _Digits) + "-" + DoubleToString(z.hi, _Digits) : "-";
-   FileWriteString(f, "smc_bias=" + (smcBias > 0 ? "BULLISH" : smcBias < 0 ? "BEARISH" : "NEUTRAL") + "\r\n");
-   FileWriteString(f, "smc_support=" + sup + "\r\nsmc_resistance=" + res + "\r\n");
-   FileWriteString(f, "smc_choch=" + (smcChochSeen > 0 ? (smcChochSeenDir > 0 ? "BULLISH " : "BEARISH ") + TimeToString(smcChochSeen, TIME_DATE | TIME_MINUTES) : "-") + "\r\n");
-   FileWriteString(f, "smc_setup=" + (smcId != "" ? smcId : "-") + "\r\nsmc_state=" + SmcStateName(smcState) + "\r\n");
-   FileWriteString(f, "smc_ob=" + (smcId != "" ? DoubleToString(smc.obLo, _Digits) + "-" + DoubleToString(smc.obHi, _Digits) : "-") + "\r\n");
-   FileWriteString(f, "smc_fvg=" + (smc.hasFvg ? DoubleToString(smc.fvgLo, _Digits) + "-" + DoubleToString(smc.fvgHi, _Digits) : "-") + "\r\n");
-   int left = SmcActive() && smcExpiry > 0 ? (int)MathMax(0, (smcExpiry - TimeCurrent()) / PeriodSeconds(InpSmcTfStructure)) : -1;
-   FileWriteString(f, StringFormat("smc_expiry_bars=%d\r\n", left));
-   FileWriteString(f, "smc_missing=" + SmcMissing() + "\r\n");
-   FileWriteString(f, StringFormat("smc_plan=%s\r\n", smcPlanEntry > 0 ? StringFormat("entry %s | SL %s | TP %s | RR %.2f | risk %.2f%%",
-                   DoubleToString(smcPlanEntry, _Digits), DoubleToString(smcPlanSl, _Digits), DoubleToString(smcPlanTp, _Digits), smcPlanRR, smcPlanRiskPct) : "-"));
-}
-
-// On start: last traded setup from the global variable and from the deal history (reconcile).
-void SmcRestore()
-{
-   gvSmcTraded = PFX + "smcTraded_" + _Symbol + "_" + (string)InpMagic;
-   if(MQLInfoInteger(MQL_TESTER))
-      return;
-   if(GlobalVariableCheck(gvSmcTraded))
-      smcLastTraded = (datetime)(long)GlobalVariableGet(gvSmcTraded);
-   if(HistorySelect(TimeCurrent() - 14 * 86400, TimeCurrent() + 60))
-      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
-      {
-         ulong d = HistoryDealGetTicket(i);
-         if(d == 0 || HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN || (ulong)HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic)
-            continue;
-         if(StringFind(HistoryDealGetString(d, DEAL_COMMENT), "SMC") == 0)
-         {
-            datetime t = (datetime)HistoryDealGetInteger(d, DEAL_TIME);
-            // the setup's CHoCH happened before the entry: everything up to the entry is consumed
-            if(t > smcLastTraded) smcLastTraded = t;
-         }
-      }
-}
-
-//+------------------------------------------------------------------+
 //| Test button: open a minimum-lot trade and close it seconds later, |
 //| to prove orders really go through. Own magic number, so it never  |
 //| counts as a trade of the day, a loss or a losing streak.          |
@@ -3004,104 +2174,23 @@ void SetPaused(bool p)
 }
 
 //+------------------------------------------------------------------+
-//| Trade mode: 1 = one bigger trade a day, 2 = several smaller ones |
+//| One strategy: the first range breakout of the day                |
 //+------------------------------------------------------------------+
 int MaxTradesEff()
 {
-   return styleRt == STYLE_ONE ? InpMaxTradesPerDay : 0;   // modes 2 and 3: no daily count (one position at a time)
+   return InpMaxTradesPerDay;
 }
 
 double RiskPctEff()
 {
-   if(styleRt == STYLE_SMC)   return InpSmcRiskPct;
-   if(styleRt == STYLE_MULTI) return InpMultiRiskPct;
    return riskPctRt;
-}
-
-void SaveStyle()
-{
-   if(MQLInfoInteger(MQL_TESTER))
-      return;
-   GlobalVariableSet(gvStyle, (double)styleRt);
-   GlobalVariableSet(gvStyleIn, (double)InpTradeStyle);
 }
 
 string StyleLine()
 {
    string size = lotModeRt == LOT_FIXED ? StringFormat("%.2f lot", InpLots)
                                         : StringFormat(L("เสี่ยง %.1f%%", "risk %.1f%%"), RiskPctEff());
-   if(styleRt == STYLE_SMC)
-      return StringFormat(L("โหมด 3: SMC (FVG+CHoCH+OB) | %s", "Mode 3: SMC (FVG+CHoCH+OB) | %s"), size);
-   return styleRt == STYLE_MULTI ? StringFormat(L("โหมด 2: หลายไม้ ไม้เล็ก | %s", "Mode 2: several small | %s"), size)
-                                 : StringFormat(L("โหมด 1: ไม้ใหญ่ วันละ 1 | %s", "Mode 1: one big a day | %s"), size);
-}
-
-// Lots each mode would trade right now (for the comparison in the popup).
-double LotsForRisk(double pct, double slDist)
-{
-   if(lotModeRt == LOT_FIXED)
-      return NormalizeLots(InpLots);
-   double perLot = RiskPerLot(slDist);
-   if(perLot <= 0)
-      return 0;
-   return NormalizeLots(AccountInfoDouble(ACCOUNT_EQUITY) * pct / 100.0 / perLot);
-}
-
-// Text describing both modes, with the tested results and today's lot size.
-string StyleDetails()
-{
-   double one = riskPctRt, multi = InpMultiRiskPct;
-   string m = L("โหมด 1: ไม้ใหญ่ วันละ 1 ไม้\n", "Mode 1: one bigger trade a day\n");
-   m += StringFormat(L(" - เข้าเฉพาะการเบรกกรอบครั้งแรกของวัน เสี่ยง %.1f%% ต่อไม้\n",
-                       " - Only the first range breakout of the day, %.1f%% risk per trade\n"), one);
-   m += L(" - ผลทดสอบ 2018-2026 (ทุน $3,000 เสี่ยง 1%): กำไร +105%, PF 1.46, DD สูงสุด 16.3%\n",
-          " - Tested 2018-2026 ($3,000, 1% risk): +105%, PF 1.46, max DD 16.3%\n");
-   m += L(" - เหมาะกับ: คนที่อยากได้กำไรสูงสุด รับพอร์ตลดลงระหว่างทางได้ 15-20%\n\n",
-          " - For: maximum profit, accepting 15-20% drawdowns\n\n");
-   m += L("โหมด 2: ค่อยๆ ออกหลายไม้ (ไม้เล็ก)\n", "Mode 2: several smaller trades\n");
-   m += StringFormat(L(" - เข้าทุกครั้งที่เข้าเงื่อนไข ไม่จำกัดไม้ต่อวัน เสี่ยง %.1f%% ต่อไม้ (พัก 20 นาทีหลังแพ้)\n",
-                       " - Every breakout that meets the rules, no daily limit, %.1f%% risk per trade (20-min pause after a loss)\n"), multi);
-   m += L(" - ผลทดสอบ 2018-2026 (ทุน $3,000 เสี่ยง 0.5%): กำไร +74%, PF 1.46, DD สูงสุด 10.5%\n",
-          " - Tested 2018-2026 ($3,000, 0.5% risk): +74%, PF 1.46, max DD 10.5%\n");
-   m += L(" - เหมาะกับ: คนที่อยากให้พอร์ตนิ่ง ยอมกำไรน้อยลง\n\n",
-          " - For: a steadier account, with less profit\n\n");
-   m += L("หมายเหตุ: ไม้ที่ 2-3 ของวันแพ้บ่อยกว่าไม้แรก ความนิ่งของโหมด 2 มาจากไม้ที่เล็กกว่า\n",
-          "Note: the 2nd-3rd trades of a day lose more often; mode 2 is steadier because each trade is smaller\n");
-
-   double atr[];
-   if(GetBuf(hATR, atr) && atr[0] > 0)
-   {
-      double slDist = MathMax(atr[0] * InpSL_ATR, MinStopDistance());
-      double l1 = LotsForRisk(one, slDist), l2 = LotsForRisk(multi, slDist);
-      double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-      m += StringFormat(L("วันนี้ด้วยทุนนี้: โหมด 1 = %.2f lot, โหมด 2 = %.2f lot\n", "Today with this balance: mode 1 = %.2f lot, mode 2 = %.2f lot\n"), l1, l2);
-      if(lotModeRt != LOT_FIXED && l1 <= minLot && l2 <= minLot)
-         m += L("(ทุนยังน้อย ทั้งสองโหมดใช้ Lot ขั้นต่ำเท่ากัน - โหมด 2 จะไม่ได้ไม้เล็กลง)\n",
-                "(Small balance: both modes use the minimum lot - mode 2 will not trade smaller)\n");
-   }
-   return m;
-}
-
-// Panel button: show both modes, then confirm the switch.
-void ChooseStyle(ENUM_TRADE_STYLE target)
-{
-   string title = "GoldScalperM15 - " + L("เลือกโหมดเทรด", "Trade mode");
-   string m = StyleDetails() + "\n";
-   string cur = styleRt == STYLE_MULTI ? "2" : "1";
-   if(target == styleRt)
-   {
-      m += StringFormat(L("ตอนนี้ใช้โหมด %s อยู่แล้ว", "Mode %s is already active"), cur);
-      MessageBox(m, title, MB_OK | MB_ICONINFORMATION);
-      return;
-   }
-   string tgt = target == STYLE_MULTI ? "2" : "1";
-   m += StringFormat(L("ตอนนี้ใช้โหมด %s - เปลี่ยนเป็นโหมด %s ไหม?\n(ไม้ที่ถืออยู่ไม่ถูกปิด มีผลกับไม้ถัดไป)",
-                       "Now using mode %s - switch to mode %s?\n(Open trades stay open; applies to the next trade)"), cur, tgt);
-   if(MessageBox(m, title, MB_YESNO | MB_ICONQUESTION) != IDYES)
-      return;
-   styleRt = target;
-   SaveStyle();
-   Notify(StringFormat(L("เปลี่ยนเป็นโหมด %s แล้ว: %s", "Switched to mode %s: %s"), tgt, StyleLine()));
+   return StringFormat(L("เบรกกรอบเอเชีย วันละ 1 ไม้ | %s", "Asian-range breakout, one trade a day | %s"), size);
 }
 
 double NormalizeLots(double lots)
@@ -3272,13 +2361,7 @@ void AccountCheck(bool popup)
             Print(lines[i]);
       Print(L("(EA ทำงานต่อตามการตั้งค่าเดิม - กดปุ่ม \"ตรวจบัญชี\" บนแผงเพื่อดูทางเลือก)",
               "(The EA keeps running with your settings - press \"Account check\" on the panel for options)"));
-      Print("==== ", L("โหมดเทรดตอนนี้: ", "Current trade mode: "), StyleLine(), " ====");
-      string sl[];
-      int ns = StringSplit(StyleDetails(), '\n', sl);
-      for(int i = 0; i < ns; i++)
-         if(sl[i] != "")
-            Print(sl[i]);
-      Print(L("(เปลี่ยนโหมดได้ที่ปุ่ม \"โหมด 1\" / \"โหมด 2\" บนแผง)", "(Switch with the \"Mode 1\" / \"Mode 2\" panel buttons)"));
+      Print("==== ", L("การเทรดตอนนี้: ", "Trading now: "), StyleLine(), " ====");
       // The same text for the PowerShell console's Account view (key A).
       if(InpConsole && !MQLInfoInteger(MQL_TESTER))
       {
@@ -3290,10 +2373,7 @@ void AccountCheck(bool popup)
             for(int i = 0; i < n; i++)
                if(lines[i] != "")
                   FileWriteString(f, lines[i] + "\r\n");
-            FileWriteString(f, "\r\n" + L("โหมดเทรดตอนนี้: ", "Current trade mode: ") + StyleLine() + "\r\n");
-            for(int i = 0; i < ns; i++)
-               if(sl[i] != "")
-                  FileWriteString(f, sl[i] + "\r\n");
+            FileWriteString(f, "\r\n" + L("การเทรดตอนนี้: ", "Trading now: ") + StyleLine() + "\r\n");
             FileClose(f);
          }
       }
@@ -3329,138 +2409,4 @@ void AccountCheck(bool popup)
    }
    if(level == 0 && answer == IDCANCEL)
       ExpertRemove();
-}
-
-//+------------------------------------------------------------------+
-//| Research probes (InpProbeLog, normally used in the tester only). |
-//| No orders: a probe follows a hypothetical entry and records how  |
-//| far price moved for it (MFE) and against it (MAE), in R, after   |
-//| 4, 8, 16 and 32 M15 bars. R = the stop distance the entry would  |
-//| have used. kind 1 = mode 1/2 signal skipped because a position   |
-//| was open; kind 2 = mode 3 confirmation (traded or not).          |
-//+------------------------------------------------------------------+
-struct GS15Probe
-{
-   int      kind;
-   string   id;
-   int      dir;
-   datetime t0;
-   double   entry, risk;          // price, stop distance (price units)
-   double   mfe, mae;             // running max, price units
-   double   mfeBeforeSl;          // MFE frozen when the stop is first reached
-   bool     slHit;
-   int      slBar;                // M15 bars from entry to the stop (-1 = not hit)
-   datetime closeAt;              // kind 1: daily close of that day (hypothetical exit)
-   bool     exited;
-   double   exitR;
-   double   mfeAt[4], maeAt[4];
-   int      done;                 // checkpoints reached
-};
-GS15Probe probes[];
-int       probeCheck[4] = {4, 8, 16, 32};
-
-string ProbeFileName()
-{
-   return StringFormat("GS15_probe_%s_%I64u%s.csv", _Symbol, InpMagic, MQLInfoInteger(MQL_TESTER) ? "_tester" : "");
-}
-
-void ProbeAdd(int kind, string id, int dir, double entry, double risk, datetime closeAt)
-{
-   if(risk <= 0 || entry <= 0)
-      return;
-   int n = ArraySize(probes);
-   ArrayResize(probes, n + 1, 64);
-   probes[n].kind = kind;  probes[n].id = id;  probes[n].dir = dir;
-   probes[n].t0 = TimeCurrent();  probes[n].entry = entry;  probes[n].risk = risk;
-   probes[n].mfe = 0;  probes[n].mae = 0;  probes[n].mfeBeforeSl = 0;
-   probes[n].slHit = false;  probes[n].slBar = -1;
-   probes[n].closeAt = closeAt;  probes[n].exited = kind != 1;  probes[n].exitR = 0;
-   probes[n].done = 0;
-   ArrayInitialize(probes[n].mfeAt, 0);
-   ArrayInitialize(probes[n].maeAt, 0);
-}
-
-void ProbesOnTick()
-{
-   int n = ArraySize(probes);
-   if(n == 0)
-      return;
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID), ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   if(bid <= 0 || ask <= 0)
-      return;
-   datetime now = TimeCurrent();
-   for(int i = n - 1; i >= 0; i--)
-   {
-      // A BUY would close at the bid, a SELL at the ask.
-      double fav = probes[i].dir > 0 ? bid - probes[i].entry : probes[i].entry - ask;
-      int bars = iBarShift(_Symbol, PERIOD_M15, probes[i].t0, false);
-      if(fav > probes[i].mfe)  probes[i].mfe = fav;
-      if(-fav > probes[i].mae) probes[i].mae = -fav;
-      if(!probes[i].slHit)
-      {
-         probes[i].mfeBeforeSl = probes[i].mfe;
-         if(probes[i].mae >= probes[i].risk) { probes[i].slHit = true; probes[i].slBar = bars; }
-      }
-      if(!probes[i].exited)
-      {
-         if(probes[i].slHit)               { probes[i].exited = true; probes[i].exitR = -1.0; }
-         else if(now >= probes[i].closeAt) { probes[i].exited = true; probes[i].exitR = fav / probes[i].risk; }
-      }
-      while(probes[i].done < 4 && bars >= probeCheck[probes[i].done])
-      {
-         probes[i].mfeAt[probes[i].done] = probes[i].mfe / probes[i].risk;
-         probes[i].maeAt[probes[i].done] = probes[i].mae / probes[i].risk;
-         probes[i].done++;
-      }
-      if(probes[i].done >= 4 && probes[i].exited)
-      {
-         ProbeWrite(probes[i]);
-         ArrayRemove(probes, i, 1);
-      }
-   }
-}
-
-void ProbeWrite(const GS15Probe &p)
-{
-   string name = ProbeFileName();
-   bool exists = FileIsExist(name, FILE_COMMON);
-   int f = FileOpen(name, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
-   if(f == INVALID_HANDLE)
-      return;
-   if(!exists)
-      FileWriteString(f, "kind,id,time,dir,entry,risk,sl_hit,sl_bar,mfe_before_sl_r,exit_r,mfe4,mae4,mfe8,mae8,mfe16,mae16,mfe32,mae32\r\n");
-   FileSeek(f, 0, SEEK_END);
-   string row = StringFormat("%d,%s,%s,%s,%s,%.5f,%d,%d,%.3f,%s", p.kind, p.id, TimeToString(p.t0, TIME_DATE | TIME_MINUTES),
-                             p.dir > 0 ? "BUY" : "SELL", DoubleToString(p.entry, _Digits), p.risk, p.slHit ? 1 : 0, p.slBar,
-                             p.mfeBeforeSl / p.risk, p.kind == 1 ? DoubleToString(p.exitR, 3) : "");
-   for(int k = 0; k < 4; k++)
-      row += StringFormat(",%.3f,%.3f", p.mfeAt[k], p.maeAt[k]);
-   FileWriteString(f, row + "\r\n");
-   FileClose(f);
-}
-
-// Modes 1/2: evaluate the entry rules while a position is open, without trading. Uses the same
-// filters as a real entry (except the open position itself) and the same stop (InpSL_ATR x ATR).
-void ProbeSkippedSignal()
-{
-   int    tradesToday;
-   double profitToday;
-   GetTodayStats(tradesToday, profitToday);
-   if(BlockReason(tradesToday, profitToday) != "")
-      return;
-   double atr[];
-   if(!GetBuf(hATR, atr))
-      return;
-   double a = atr[0];
-   if(InpMinATR > 0 && a < InpMinATR)
-      return;
-   int signal = GetSignal();
-   if(signal == 0 || (signal > 0 && !InpAllowBuy) || (signal < 0 && !InpAllowSell))
-      return;
-   if(InpMinConfidence > 0 && ConfidenceScore(signal) < InpMinConfidence)
-      return;
-   double px = signal > 0 ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   datetime now = TimeCurrent();
-   datetime closeAt = InpDailyCloseHour >= 0 ? now - (now % 86400) + InpDailyCloseHour * 3600 : now + 32 * 900;
-   ProbeAdd(1, "SKIP-" + TimeToString(now, TIME_DATE | TIME_MINUTES), signal, px, MathMax(a * InpSL_ATR, MinStopDistance()), closeAt);
 }
