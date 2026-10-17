@@ -1,4 +1,4 @@
-﻿# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
+# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
 # start after the daily close, run one backtest at a time, restart MT5 at the end.
 # The main terminal is the portable MT5 in D:\MT5_GoldScalper (started with /portable).
 #
@@ -24,7 +24,8 @@ param(
     [string]$Plan = '',                       # .ps1 that returns the list of runs (same fields as $runs below)
     [string]$Tag  = '',                       # suffix for the result folder, e.g. 'exp1'
     [string]$SuiteName = '',                  # exact result folder name (continue an earlier suite), e.g. suite_20261016_exp3
-    [switch]$SkipDone                         # skip runs that already have a report in the result folder
+    [switch]$SkipDone,                        # skip runs that already have a report in the result folder
+    [string]$Source = 'GoldScalperM15'         # EA source in the repo root to compile and test, e.g. GS15_Lab
 )
 $ErrorActionPreference = 'Stop'
 # Only Get-LabSummary is needed from lab.ps1. Dot-source it FIRST: it sets $Term/$Editor for the
@@ -99,7 +100,7 @@ function Run-One($r) {
     $ini = "$dir\tester.ini"
     @"
 [Tester]
-Expert=MyEA\Dev\GS15_dev.ex5
+Expert=MyEA\Dev\GS15_dev_$Source.ex5
 ExpertParameters=$set
 Symbol=GOLD
 Period=M15
@@ -173,12 +174,12 @@ try {
     # Compile the experimental source into the tester slot (Experts\MyEA\Dev), not the live EA.
     $clog = "$Suite\compile.log"
     New-Item -ItemType Directory -Force "$Data\MQL5\Experts\MyEA\Dev" | Out-Null
-    Start-Process $Editor -ArgumentList '/portable', "/compile:`"$Repo\GoldScalperM15.mq5`"", "/include:`"$Data\MQL5`"", "/log:`"$clog`"" -Wait
+    Start-Process $Editor -ArgumentList '/portable', "/compile:`"$Repo\$Source.mq5`"", "/include:`"$Data\MQL5`"", "/log:`"$clog`"" -Wait
     $res = Get-Content $clog -Encoding Unicode | Select-String 'Result:' | Select-Object -Last 1
     Log "compile: $res"
-    if (-not (Test-Path "$Repo\GoldScalperM15.ex5")) { throw 'compile failed' }
-    Copy-Item "$Repo\GoldScalperM15.ex5" "$Data\MQL5\Experts\MyEA\Dev\GS15_dev.ex5" -Force
-    Log ('source sha256 ' + (Get-FileHash "$Repo\GoldScalperM15.mq5").Hash.Substring(0, 12) + ', commit ' + (git -C $Repo rev-parse --short HEAD))
+    if (-not (Test-Path "$Repo\$Source.ex5") -or (Get-Item "$Repo\$Source.ex5").LastWriteTime -lt (Get-Item "$Repo\$Source.mq5").LastWriteTime) { throw 'compile failed' }
+    Copy-Item "$Repo\$Source.ex5" "$Data\MQL5\Experts\MyEA\Dev\GS15_dev_$Source.ex5" -Force
+    Log ('source sha256 ' + (Get-FileHash "$Repo\$Source.mq5").Hash.Substring(0, 12) + ', commit ' + (git -C $Repo rev-parse --short HEAD))
 
     foreach ($r in $runs) {
         if (Test-Path $StopFile) { Log 'STOP file - ending suite'; break }

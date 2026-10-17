@@ -1,0 +1,5 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpGridStepPts=1000
+InpStrategy=2

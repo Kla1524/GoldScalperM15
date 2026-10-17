@@ -1,0 +1,5 @@
+﻿run,deposit,net,trades,closes,days_traded,trades_per_day,winrate_pct,losing_days_pct,worst_day,worst_day_pl,worst_day_pct,worst_week_pl,max_losing_days_row,max_balance_dd_pct,blown_below_50pct_on
+G1_clip_DEV_everytick,10000.0,-9359.92,128,128,61,2.1,56.2,19.7,2018.01.24,-3600.68,-36.0,-3302.42,2,95.1,2018.02.07
+G1_clip_RTwindow_1min,10000.0,225144.96,1746,1746,456,3.83,65.9,3.3,2025.12.12,-21456.0,-214.6,-20217.5,1,57.9,
+G3_sl10_DEV_everytick,10000.0,-9366.54,336,336,161,2.09,50.6,42.2,2018.03.28,-1469.0,-14.7,-1859.18,5,94.4,2018.04.04
+G3_sl10_RTwindow_1min,10000.0,141476.72,1726,1726,456,3.79,64.3,11.6,2026.10.09,-16683.5,-166.8,-13885.5,6,49.6,
