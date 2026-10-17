@@ -2,6 +2,39 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.51 — Looking after the bot
+- **Daily summary** push (`InpDailySummary`, on): once a weekday, a few minutes after the daily close (`InpDailyCloseHour`, or 23:00 server when the daily close is off) — trades, closed P/L, balance, drawdown from the peak, losses in a row, losing days in a row and the state.
+- **Start / stop notices** (`InpNotifyStartStop`, on): when the EA starts (not on a timeframe or input change) it reports how long it was not running, from the age of its status file — so it also covers a PC that was off or lost power. When MT5 closes, the account changes or the EA is removed it says so, and whether an open trade keeps its SL.
+- **Duplicate guard:** a second copy of the EA on another chart of the same symbol refuses to start (INIT_FAILED with an alert and a push), so trades are never doubled.
+- **Losing-days halt** (`InpMaxLosingDays`, default 0 = off): pause after N losing days in a row (days without trades do not count; days the EA missed are counted from the history when it starts). Shown in the status file and the console. Tested with a resume after 7 days ($10,000, defaults): N = 2 — 2018–2023 +$338, 2024–2026 +$768, real ticks +$799; N = 3 — +$1,194 / +$1,380 / +$1,032; off — +$1,022 / +$2,223 / +$1,638. Off by default.
+- **PC watchdog** `tools/GS15_Watchdog.ps1`: every 2 minutes during market hours, a Windows notification if the trading MT5 is not running or the EA status file is older than 3 minutes. Never starts, stops or trades anything. Not installed automatically.
+- Console: "Losing days in a row" line.
+- Regression: the defaults give exactly the v1.50 trades (trade-by-trade, 0 mismatches: 473 / 209 / 262 / 227 trades) — `reports/experiments/suite_20261017_v151`.
+
+## v1.50 — One strategy
+- **Only the Asian-range breakout, one trade a day.** Removed: mode 2 (several trades a day), mode 3 (smart money concepts, research), the old strategies (EMA pullback, Donchian, RSI(2)), the research probes and the mode buttons (panel and console keys `1` / `2`).
+- Defaults: **0.5% risk** per trade, news filter **±15 min** (high-impact USD).
+- Optional **stop entry** (`InpStopEntry`, off): BUY STOP / SELL STOP at the range edges, the other side cancelled on a fill, same risk checks. Tested: 2018–2023 +$1,273 PF 1.20, 2024–2026 +$3,492 PF 1.74 (DD 7% vs 4%), real ticks +$2,370 PF 1.61 — kept off.
+- Regression: identical trades to v1.44 (R1 +$2,670.83 / 473; defaults 2018–2023 +$1,022.15 / 209, 2024–2026 +$2,222.58 / 262, real ticks +$1,638.34 / 227).
+
+## v1.44 — Research (branch `research-v1.44`, not released)
+- Mode 3 (smart money concepts) and tests: no edge, dropped in v1.50.
+- Tester-only options: risk-guard halts like live (`InpTesterHaltDays`) and spread stress (`InpTesterSpreadMult`).
+- Experiments: news variants, trades per day, skipped-signal and MFE/MAE probes, and a final round of 41 runs — order delay 0–500 ms and random, spread ×1.5 / ×2, halts like live, Monte Carlo. The chosen settings (one trade a day, 0.5% risk, news ±15) became the v1.50 defaults.
+
+## v1.43 — News filter in the Strategy Tester, chart Console button, headlines
+- **News filter in backtests:** the MT5 calendar is not available in the Strategy Tester, so backtests used to include trades taken around news.
+  - The live EA now exports the USD calendar history (moderate + high impact, Dec 2017 to 3 weeks ahead) to `Common\Files\GS15_news_USD.csv`: once at start and then daily, when the file is older than a day. The `NEWSEXPORT` console command forces it.
+  - Times are stored in **GMT**. `CalendarValueHistory` reports every past event with *today's* server offset, which puts winter events one hour late; the export removes that offset and the tester adds the right one back per event with the US daylight-saving rule (`InpNewsServerUSDST`; XM is GMT+2 in winter, GMT+3 in summer). Checked: NFP 9 Jan 2026 and CPI 14 Oct 2026 at 15:30 server time, FOMC 10 Dec 2025 at 21:00.
+  - In the tester the EA reads the file (`InpNewsFile`, default `GS15_news_USD.csv`) and applies the same before/after windows as live. `InpNewsInTester = false` turns it off, e.g. to compare with older results.
+  - `tools/ExportNews.mq5` exports the history by hand.
+- **Console button on the chart** (top right): **▶ Open console** / **■ Close console**. MT5 does not let an EA start programs without DLL imports, so the EA only writes a request file and a small hidden helper, `tools/GS15_ConsoleLauncher.ps1`, opens or closes the window.
+  - `tools/Install-ConsoleLauncher.ps1` installs the helper in the Windows Startup folder and starts it; `-Remove` uninstalls it.
+  - The helper writes a heartbeat; without it the button says **Console (set up)** and a click explains what to do. A second helper replaces one that has stopped responding.
+  - The console announces its process id, so the button closes the right window at once. `InpConsoleButton = false` hides the button.
+- **Headlines in the console:** recent headlines from BBC (world, business), CNBC (world, markets) and InfoQuest RSS, fetched in the background every 10 minutes. Information only: the EA never trades on them. `H` hides / shows them.
+- **Portable MT5:** `install_to_MT5.bat` installs into a portable MT5 in `D:\MT5_GoldScalper` when there is one (`PORTABLE=` line), and `tools/backtest.ps1` runs it with `/portable`. A note in the guide explains why MT5 and the console must be started from your own Windows session.
+
 ## v1.42 — Test button, console redesign, review fixes
 - **Test** button on the panel and `T` in the console: opens a real BUY of the minimum lot with an SL, holds it `InpQuickTestHoldMs` (100 ms), closes it, and reports how long the open, hold and close took and what it cost (the spread). Proves that orders really go through and nothing is stuck.
 - The test trade uses its own magic number (`InpMagic` + 1), so it never counts as a trade of the day, a loss, a cooldown or a losing streak. It is refused while the EA has an open trade or Algo Trading is off. A test trade left by an MT5 restart is closed automatically.

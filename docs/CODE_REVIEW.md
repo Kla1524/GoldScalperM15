@@ -1,5 +1,7 @@
 # Code review (v1.42 source) — time, signals, risk, orders
 
+> Note: written for v1.42. Modes, the mode buttons and the old strategies it mentions were removed in v1.50; the time, risk and order checks still apply.
+
 | Area | Finding | Status |
 |---|---|---|
 | Asian range | High/low of M15 bars opening 00:00–07:45 server time (`CopyHigh(rs, re)`, `re = 08:00 - 1 s`). | OK |

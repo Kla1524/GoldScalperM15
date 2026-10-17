@@ -1,107 +1,87 @@
 # GoldScalperM15
 
-![Version](https://img.shields.io/badge/version-1.42-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20testing-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.51-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20forward%20test-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
 
-**MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout**
-with strict risk-based position sizing, a volatility filter, news filter, loss diagnosis, an on-chart control panel, a PowerShell console and mobile push notifications.
+**MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout, one trade a day**
+with strict risk-based position sizing (0.5% per trade), a volatility filter, a news filter (live and in the Strategy Tester), risk guards, loss diagnosis, an on-chart panel, a PowerShell console and mobile push notifications.
 
-**Current version: v1.42** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
-
-![On-chart control panel on a GOLD M15 chart](docs/images/panel.png)
-
-*On-chart panel (English by default, Thai with `InpLanguage`): status, open trade, trade mode, today's trades and P/L, spread/ATR, next news event, and the Pause / Close all / Mode 1 / Mode 2 / Account check buttons.*
-
-![PowerShell console](docs/images/console.png)
-
-*PowerShell console (`GS15_Console.bat`): live status, colour event log (newest first) and keys to switch mode, pause or close all.*
+**Current version: v1.51** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 
 > ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 
-## 📊 Backtest results (XM Global `GOLD`, fixed 0.01 lot — see the next section for 1% risk sizing at every balance)
+## 📊 Backtest results (default settings, XM Global `GOLD`, $10,000, 0.5% risk, news filter ±15 min)
 
-| Period | Data | Deposit | Net profit | Profit factor | Max equity DD | Trades |
-|---|---|---|---|---|---|---|
-| 2018 – 2026 | 1-minute OHLC | $3,000 | +$2,387 | **1.63** | **9.0%** | 503 |
-| Oct 2024 – Oct 2026 | **real ticks (99%)** | $3,000 | +$1,693 | **1.61** | **10.2%** | 255 |
+| Period | Data | Net profit | Profit factor | Max DD | Trades |
+|---|---|---|---|---|---|
+| 2018 – 2023 (development) | 1-minute OHLC | +$1,022 | 1.23 | 8.4% | 209 |
+| 2024 – Oct 2026 (validation) | 1-minute OHLC | +$2,223 | 1.54 | 4.0% | 262 |
+| Oct 2024 – Oct 2026 | **real ticks** | +$1,638 | 1.50 | 3.7% | 227 |
 
-Net profit by year (2018–2026, $3,000): 2018: no trades · 2019: +49 · 2020: +178 · 2021: −20 · 2022: +151 · 2023: +22 · 2024: +60 · 2025: +390 · 2026: +1,558
-
-**How it was validated**
-- Parameters were chosen on **2020–2023 only**, then checked on periods the optimizer never saw: **2024–2026** (forward) and **2018–2019**.
-- Neighbouring settings (stop 3–6 × ATR, exit 18:00–22:00) are also profitable, so the result is not a single lucky parameter set.
-- Confirmed on real tick data, including spreads.
+**Stress tests (v1.44 research, same settings)**
+- Order delay: 500 ms cost about 1% of the profit; random delays (5 runs) 1–4% on real ticks.
+- Spread ×1.5 and ×2: still profitable in every period.
+- Risk guards paused like live (resumed after 7 days): profit −11% in 2018–2023, slightly higher in 2024–2026.
+- Monte Carlo (trade order shuffled / resampled): 95% of runs stayed under about 10–12% drawdown; losing streaks up to 12 trades.
 
 **Honest caveats**
-- Most of the profit comes from 2025–2026, when gold was unusually volatile. In quiet years the EA mostly sits out (by design) and earns little.
-- Fixed 0.01 lot means risk per trade grows with gold's volatility; the largest single loss in 2026 was about $230.
-- The news filter cannot run in the Strategy Tester, so it was not part of these results.
+- Most of the profit comes from 2024–2026, when gold was unusually volatile. In quiet years the EA mostly sits out (by design) and earns little.
+- The live demo forward test (target 30–50 trades) started in October 2026; it is not finished.
+- Other ideas were tested and rejected: more trades a day, a smart-money-concepts mode, an EMA/Stochastic scalper and a martingale grid (the grid blew the account with real-tick data — its big 1-minute-OHLC profits were a modelling artefact). Results are in the research branches.
 
 ## 💰 Account size: Standard, Micro and Cent accounts
 
-The lot size is **risk-based**: 1% of equity per trade in mode 1, 0.5% in mode 2. Since v1.39 the risk is **strict** (`InpStrictRisk`). Real risk = SL from the actual entry price + slippage allowance + commission. If even the minimum lot (0.01) would risk more than the target %, the EA **skips the trade and says why**; it never forces it. On a Standard account 0.01 lot risks about $15–$100+ per stop, so the account type decides what balance is enough:
+The lot size is **risk-based**: 0.5% of equity per trade (`InpRiskPct`). The risk is **strict** (`InpStrictRisk`): real risk = SL from the actual entry price + slippage allowance + commission. If even the minimum lot (0.01) would risk more than 0.5%, the EA **skips the trade and says why**; it never forces it. On a Standard account 0.01 lot risks about $15–$100+ per stop, so:
 
 | Balance | Use |
 |---|---|
-| under ~$3,000 | **Micro or Cent account** (lots 100× smaller): from ~$30 |
-| ~$3,000+ | Standard, Micro or Cent |
+| under ~$6,000 | **Micro or Cent account** (lots 100× smaller), from ~$60 |
+| ~$6,000+ | Standard, Micro or Cent |
 
-Below that, most signals are skipped (each skip is reported with the money at risk). The start-up **account check** (Experts tab, or a popup from the panel button) detects the account type (Standard / Micro / Cent) and tells you what balance or account you need.
+The start-up **account check** (Experts tab, or a popup from the panel button) detects the account type (Standard / Micro / Cent) and tells you what balance or account you need. A Micro account is a Standard account scaled down 100× (contract 1 oz instead of 100 oz), and a Cent account counts the balance in US cents.
 
-Results with the strict risk rule (v1.39, mode 1, 1% risk, 2018–2026, 1-min OHLC):
-
-| Micro / Cent balance | = Standard balance | Net 2018–2026 | PF | Max DD | Trades |
-|---|---|---|---|---|---|
-| $10 | $1,000 | +18% | 1.29 | 12.6% | 151 (most skipped: min lot > 1%) |
-| $30 | $3,000 | +89% | 1.45 | 14.8% | 473 |
-| $100 | $10,000 | +112% | 1.44 | 16.2% | 503 |
-
-Real ticks Oct 2024 – Oct 2026, $3,000: +39%, PF 1.62, DD 10.1%. Mode 2 (0.5% per trade) needs about twice the balance of mode 1 to trade normally; at $3,000 it skipped most signals (+5%, PF 1.11).
-
-A Micro account is a Standard account scaled down 100× (contract 1 oz instead of 100 oz), and a Cent account counts the balance in US cents, so $10 on Micro/Cent behaves like $1,000 on Standard. That is how these 8.8-year tests were run (1-minute OHLC, XM GOLD).
-
-## ✨ Strategy (default)
+## ✨ Strategy
 
 1. **Range:** record the high/low of the Asian session, 00:00–08:00 server time.
 2. **Volatility filter:** trade only on days when daily ATR(14) ≥ 1.6% of price; breakouts fail in quiet markets.
-3. **Entry:** the first M15 candle that closes above the range high (buy) or below the range low (sell). Two trade modes, switchable with the **Mode 1 / Mode 2** panel buttons (a window explains both before you confirm) or `InpTradeStyle`: mode 1 takes one trade per day, mode 2 takes every breakout that meets the rules at `InpMultiRiskPct` (0.5%) per trade. Results (2018–2026, $3,000, 1-min OHLC):
+3. **Entry:** the first M15 candle of the day that closes above the range high (buy) or below the range low (sell), from 08:00 until 18:00 server time. **One trade a day.** Optional: `InpStopEntry` places BUY STOP / SELL STOP orders at the range edges instead (off by default).
+4. **Confidence score (0–4):** +1 each for trading with the D1 trend, with the H1 trend, ADX(H1) 20–30 and RSI ≥ 70 in the trade direction; entries need ≥ 1 (`InpMinConfidence`).
+5. **Stop:** 4 × ATR(14, M15). No take-profit, breakeven or trailing stop: winners run.
+6. **Exit:** everything is closed at **20:00 server time** (no overnight swap) and before the Friday close.
+7. **Position size:** Lot = Equity × 0.5% ÷ (SL + slippage + commission per lot), rounded down; skipped if the minimum lot would exceed 0.5%.
+8. **Risk guards:** daily loss limit 3% (`InpMaxDailyLossPct`), hard cap 5% per trade (`InpMaxRiskPct`), lot cap (`InpMaxExposure`, `InpMaxLot`), 20-minute pause after a loss, news filter ±15 min around high-impact USD events.
+   **Halts** (the EA pauses itself and waits for you to review and press Resume; open trades keep their SL): equity 20% below its peak (`InpMaxDDPct`), 5 losing trades in a row (`InpMaxLossStreak`), and optionally N losing days in a row (`InpMaxLosingDays`, off by default).
+9. **Loss diagnosis & journal:** every loss is tagged with reasons (failed breakout, against trend, gave back profit, …) in the phone alert and in a CSV journal.
 
-   | Style | Preset | Net | PF | Max DD | Trades |
-   |---|---|---|---|---|---|
-   | One bigger trade a day | Mode 1 / `Default` (1 trade, 1% risk) | +$3,150 | 1.46 | 16.3% | 504 |
-   | Several smaller trades | Mode 2 / `Unlimited_0.5pct` (no limit, 0.5% risk) | +$2,212 | 1.46 | 10.5% | 589 |
-   | One smaller trade a day | `Safe_0.5pct` (1 trade, 0.5% risk) | +$2,334 | 1.56 | 9.1% | 504 |
+## 🤖 Looking after the bot (v1.51)
 
-   Extra trades of the day come after a failed breakout and lose more often, so the lower drawdown of the multi-trade style comes from the smaller size, not from the extra trades.
-4. **Stop:** 4 × ATR(14, M15). No take-profit, breakeven or trailing stop: winners run.
-5. **Exit:** all positions are closed at **20:00 server time**, so no overnight swap. XM's gold swap was the main reason holding strategies failed in testing.
-6. **Position size:** risk-based by default: Lot = Equity × Risk% ÷ (SL + slippage + commission per lot), rounded down (`InpLotMode`, `InpRiskPct`, `InpMultiRiskPct`). **Strict:** if the minimum lot would exceed the target %, the trade is skipped with the reason (`InpStrictRisk`).
-7. **Risk guards:** daily loss budget: a trade is skipped if its stop would push today's loss past the 3% daily limit (`InpMaxDailyLossPct`); hard cap of 5% of equity per trade (`InpMaxRiskPct`); every close is verified and retried; one order at a time across charts; the loss cooldown and pause survive an MT5 restart.
-   **Halts** (the EA pauses itself and waits for you to review and press Resume; open trades keep their SL): equity 20% below its peak (`InpMaxDDPct`), or 5 losing trades in a row (`InpMaxLossStreak`). **Lot cap:** position value ≤ 10 × equity (`InpMaxExposure`) and an optional fixed maximum (`InpMaxLot`), against a bad ATR or a tiny stop. In 2018–2026 ($3,000) the drawdown halt never fired and the losing-streak halt would have asked for a review 9 times, about once a year.
-8. **Confidence score (0–4):** +1 each for trading with the D1 trend, with the H1 trend, ADX(H1) 20–30 and RSI ≥ 70 in the trade direction; entries need ≥ 1 (`InpMinConfidence`). Each condition separated winners from losers in both 2018–2023 and 2024–2026. Score-0 trades lost money in both periods. The filter improved 2018–2026 (PF 1.56 → 1.63) but cost some profit in the 2024–2026 rally.
-9. **Loss diagnosis & journal:** every loss is tagged with reasons (failed breakout, against trend, gave back profit, …) in the phone alert and in a CSV journal; 20-minute cooldown after a loss.
-
-Other selectable strategies (`InpStrategy`): EMA pullback (v1.x, not profitable in tests), Donchian breakout, RSI(2) pullback.
+| | |
+|---|---|
+| 📱 **Daily summary** | After the daily close a push message to your phone: trades, P/L, balance, drawdown, losing streaks, state |
+| ⏯️ **Start / stop notices** | When the EA starts it reports how long it was not running (PC off, MT5 closed, power cut); when MT5 closes or the EA is removed it says so |
+| 🧷 **Duplicate guard** | A second copy on another chart of the same symbol refuses to start, so trades are never doubled |
+| 🛑 **Losing-days halt** | `InpMaxLosingDays` (0 = off). Tested: stopping after 2 losing days halved the profit, after 3 it was mixed, so it is off by default |
+| 🐶 **PC watchdog** | `tools/GS15_Watchdog.ps1`: every 2 minutes during market hours, a Windows notification if MT5 is closed or the EA stopped updating. It never starts, stops or trades anything. Not installed automatically |
 
 ## 🖥️ Other features
 
 | | |
 |---|---|
-| 🚦 **Filters** | Trading hours · max spread · trades per day · daily loss limit · Friday close · daily close |
-| 📰 **News filter** | MT5 economic calendar — pauses entries around high-impact USD events (live trading only) |
-| 🖥️ **Control panel** | Live status (incl. "low volatility"), position P/L, today's stats, spread/ATR, next news · **Pause** / **Close all** / **Mode 1 / Mode 2** / **Test** (opens and closes a minimum-lot trade to prove orders go through) buttons |
-| 🧭 **Account check** | Start-up check in the Experts tab, or a popup from the panel button (TH/EN), that analyses balance, leverage, contract size and the money one stop-loss would cost, then recommends and lets you choose (keep, switch to 1% risk lots, pause, remove) |
-| 🖥️ **PowerShell console** | Desktop shortcut "GoldScalper Console" (`tools/Make-ConsoleShortcut.ps1`) or `GS15_Console.bat`. It shows the status with the reason, today's P/L, target vs actual risk, guards, market and news, and the event journal. Keys: `1`/`2` mode, `P` pause/resume, `A` account check, `T` test order, `C` close all. Each command waits for the EA's reply. The EA keeps running whether the console is open or not |
-| 📱 **Notifications** | MT5 mobile push on open/close, news windows, daily-loss stop, skipped trades (max once a day) |
+| 🚦 **Filters** | Trading hours · max spread · one trade a day · daily loss limit · Friday close · daily close |
+| 📰 **News filter** | MT5 economic calendar — pauses entries ±15 min around high-impact USD events. Also in the Strategy Tester: the live EA exports the USD calendar history (GMT) to `Common\Files\GS15_news_USD.csv`, and the tester converts it to server time with the US daylight-saving rule |
+| 🖥️ **Control panel** | Status with the reason, position P/L, today's trades and P/L, spread/ATR, next news · **Pause** / **Close all** / **Account check** / **Test** (opens and closes a minimum-lot trade to prove orders go through, demo only) |
+| 🧭 **Account check** | Balance, leverage, contract size and what one stop-loss costs, with a verdict (TH/EN) |
+| 🖥️ **PowerShell console** | `GS15_Console.bat` or the chart's **Console** button (needs `tools/Install-ConsoleLauncher.ps1` once). Status, strategy & risk, guards (drawdown, losing streak, losing days), market and news, event journal, headlines. Keys: `P` pause/resume, `A` account check, `T` test order, `C` close all. The EA keeps running whether the console is open or not |
+| 📱 **Notifications** | MT5 mobile push: open/close, news windows, daily-loss stop, halts, skipped trades, daily summary, start/stop |
 
 ## 🚀 Installation
 
-**Windows (one click):** run `install_to_MT5.bat`. It compiles the EA, shows the target folder and — after you confirm with **Y** — copies it to `MQL5\Experts\MyEA` and the preset to `MQL5\Presets`.
+**Windows (one click):** run `install_to_MT5.bat`. It compiles the EA, shows the target folder and — after you confirm with **Y** — copies it to `MQL5\Experts\MyEA` and the preset to `MQL5\Presets`. A portable MT5 in `D:\MT5_GoldScalper` is used when there is one.
 
 **Manual:** copy `GoldScalperM15.mq5` into `MQL5\Experts` (*File → Open Data Folder*), open it in MetaEditor and press **F7**.
 
-Attach the EA to a **GOLD/XAUUSD** chart, enable **Allow Algo Trading**. The defaults are the validated settings (`presets/GoldScalperM15_Default.set` is the same).
+Attach the EA to **one** GOLD/XAUUSD chart and enable **Allow Algo Trading**. The defaults are the validated settings (`presets/GoldScalperM15_Default.set` is the same). For phone alerts enter your MetaQuotes ID in *Tools → Options → Notifications*.
 
 > Times are **broker server time**. The defaults were validated on XM Global (GMT+2/+3). Other brokers may need the hours adjusted.
 
@@ -109,15 +89,11 @@ Attach the EA to a **GOLD/XAUUSD** chart, enable **Allow Algo Trading**. The def
 
 ## 🧪 Reproducing the backtests
 
-`tools/backtest.ps1` drives the MT5 Strategy Tester from PowerShell (compile, single backtests, grid/genetic optimization with a forward period, report parsing):
+- `tools/backtest.ps1` — single backtests and optimization from PowerShell.
+- `tools/night_suite.ps1` + `tools/plans/*.ps1` — a list of Strategy Tester runs on a portable MT5 (use a test-only copy with `-Terminal D:\MT5_Tester -NoRestart -Now`); results go to `reports/experiments/suite_<date>/`.
+- `tools/compare_trades.py` — trade-by-trade comparison of two reports (regression evidence); `tools/analyze_exp.py`, `tools/montecarlo.py` — metrics and Monte Carlo.
 
-```powershell
-. .\tools\backtest.ps1
-Build-Dev
-Invoke-Backtest -Name check -From 2024.10.13 -To 2026.10.12 -Model 4 -Deposit 3000
-```
-
-Paths at the top of the script point to the author's MT5 installation; adjust them for yours.
+Paths at the top of the scripts point to the author's MT5 installation; adjust them for yours.
 
 ## 📁 Repository contents
 
@@ -125,15 +101,14 @@ Paths at the top of the script point to the author's MT5 installation; adjust th
 GoldScalperM15.mq5          EA source code (MQL5)
 install_to_MT5.bat          One-click compile + install helper (Windows)
 GS15_Console.bat            Opens the PowerShell console (tools/GS15_Console.ps1)
-tools/Make-ConsoleShortcut.ps1  Desktop / Start menu shortcuts for the console
 presets/                    Validated default preset
-tools/backtest.ps1          Backtest / optimization automation
-USER_GUIDE.md               User guide (English)
+tools/                      Console, launcher, watchdog, news export, backtest and analysis scripts
+tools/plans/                Backtest plans used for the results
+reports/experiments/        Backtest reports and summaries behind the numbers above
+docs/                       Code review notes, MT5 self-close note
+USER_GUIDE.md / _TH.md      User guide (English / Thai)
 CHANGELOG.md                What changed in each version
-LICENSE                     MIT license
-DISCLAIMER.md               Education-only / not investment advice (EN + TH)
-docs/images/                Screenshots
-USER_GUIDE_TH.md            User guide (Thai)
+LICENSE / DISCLAIMER.md     MIT license / education-only disclaimer (EN + TH)
 ```
 
 ## 📄 License
@@ -142,6 +117,10 @@ USER_GUIDE_TH.md            User guide (Thai)
 
 ## 🗺️ Roadmap
 
-- [ ] Telegram notifications & remote control
-- [x] Trade journal export (CSV) — v1.32
-- [x] English / Thai for the panel, alerts and windows — v1.39 (English by default)
+- [ ] Demo forward test: 30–50 trades
+- [ ] Exit-rule study (breakeven, shorter stop, partial exits) — tested before any change
+- [x] Bot care: daily summary, start/stop notices, duplicate guard, losing-days halt — v1.51
+- [x] One strategy only (modes removed) — v1.50
+- [x] News filter in the Strategy Tester — v1.43
+- [x] English / Thai for the panel, alerts and windows — v1.39
+- ~~Telegram control~~ — dropped; alerts use MT5 mobile push

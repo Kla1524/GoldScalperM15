@@ -1,6 +1,6 @@
-# GoldScalperM15 v1.42 — User Guide
+# GoldScalperM15 v1.51 — User Guide
 
-XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-range breakout on volatile days**, wide ATR stop, all positions closed at 20:00 server time. Includes a per-trade risk guard, news filter, on-chart control panel and mobile push notifications.
+XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). One strategy: **Asian-range breakout on volatile days, one trade a day**, wide ATR stop, all positions closed at 20:00 server time. Includes strict 0.5% risk sizing, risk guards, a news filter, an on-chart control panel, a PowerShell console and mobile push notifications (daily summary, start/stop notices).
 
 > ⚠️ **For education and research only.** Not investment advice and not an invitation or solicitation to invest. Trading leveraged products carries a high risk of loss; backtests do not guarantee future results. Always test on a demo account first. You are solely responsible for your trading.
 >
@@ -8,29 +8,20 @@ XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). Default strategy: **Asian-rang
 
 ## Capital and account type
 
-Lot size is **1% of equity per trade** in mode 1 and 0.5% in mode 2, counting the SL, a slippage allowance and commission. With the default **strict risk** rule (`InpStrictRisk`), a trade is skipped, with the reason, when even the minimum lot would exceed that %. Pick the account type by balance:
+Lot size is **0.5% of equity per trade** (`InpRiskPct`), counting the SL, a slippage allowance and commission. With the default **strict risk** rule (`InpStrictRisk`), a trade is skipped, with the reason, when even the minimum lot would exceed that %. Pick the account type by balance:
 
 | Balance | Account |
 |---|---|
-| under ~$3,000 | **Micro** or **Cent** (lots 100× smaller than Standard), from ~$30 |
-| ~$3,000+ | Standard, Micro or Cent |
+| under ~$6,000 | **Micro** or **Cent** (lots 100× smaller than Standard), from ~$60 |
+| ~$6,000+ | Standard, Micro or Cent |
 
-On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$3,000 most signals are skipped by the strict 1% rule. The **account check** at start-up (Experts tab, or a popup from the panel button) detects Standard / Micro / Cent and shows what you need.
+On a Standard account one stop-loss at the minimum lot costs $15–$100+, so below ~$6,000 most signals are skipped by the strict 0.5% rule. The **account check** at start-up (Experts tab, or a popup from the panel button) detects Standard / Micro / Cent and shows what you need. (Its recommendation text still quotes the balance for 1% risk; at 0.5% you need about twice that.)
 
 **Opening a Micro demo at XM:** on the XM website choose *Open Demo Account* → account type **Micro**, then log in to it in MT5 (you do this yourself). Check in Market Watch that GOLD is available and its contract size is 1. Cent accounts at other brokers show the balance in **USC**; the popup converts it to USD.
 
-**Presets:** `GoldScalperM15_Default.set` (1% risk) and `GoldScalperM15_Safe_0.5pct.set` (0.5% risk, about half the drawdown) and `GoldScalperM15_Unlimited_0.5pct.set` (starts in mode 2: several trades at 0.5% risk) — or just use the mode buttons on the panel.
+**Preset:** `GoldScalperM15_Default.set` — the same as the EA defaults (0.5% risk, one trade a day, news ±15 min).
 
-| Micro / Cent balance | = Standard balance | Lot sizing | Net 2018–2026 | PF | Max DD |
-|---|---|---|---|---|---|
-| $10 | $1,000 | min lot (≈1–3% risk) | +203% | 1.52 | 18.0% |
-| $20 | $2,000 | 1% risk | +120% | 1.47 | 14.8% |
-| $50 | $5,000 | 1% risk | +108% | 1.43 | 16.1% |
-| $100 | $10,000 | 1% risk | +116% | 1.43 | 16.5% |
-| $100 | $10,000 | **0.5% risk (Safe preset)** | +41% | 1.40 | **8.2%** |
-| $1,000 | $100,000 | 1% risk | +134% | 1.45 | 17.1% |
-
-A Micro account is a Standard account scaled down 100× (contract 1 oz instead of 100 oz), and a Cent account counts the balance in US cents, so $10 on Micro/Cent behaves like $1,000 on Standard. That is how these 8.8-year tests were run (1-minute OHLC, XM GOLD). A direct real-tick test of $10 on a Micro contract (Aug–Oct 2026) gave +$1.79, PF 1.41, DD 12.2%.
+**Backtest results (defaults, $10,000, news filter on):** 2018–2023 +$1,022, PF 1.23, DD 8.4% (209 trades) · 2024–Oct 2026 +$2,223, PF 1.54, DD 4.0% (262) · real ticks Oct 2024–Oct 2026 +$1,638, PF 1.50, DD 3.7% (227).
 
 ## Files
 
@@ -39,6 +30,9 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 | `GoldScalperM15.mq5` | Source code (edit in MetaEditor) |
 | `install_to_MT5.bat` | Double-click to compile and install/update the EA in MT5 |
 | `presets\*.set` | Validated default preset (same as the EA defaults) |
+| `GS15_Console.bat` | Opens the PowerShell console |
+| `tools\Install-ConsoleLauncher.ps1` | Run once: lets the **Console** button on the chart open / close the console |
+| `tools\GS15_Watchdog.ps1` | Optional PC watchdog: a Windows notification when MT5 or the EA stops during market hours |
 | `compile.log` | Created during installation — compiler output, safe to delete |
 
 ## 1. Install / update the EA
@@ -49,10 +43,12 @@ A Micro account is a Standard account scaled down 100× (contract 1 oz instead o
 
 Run it again whenever you change `GoldScalperM15.mq5`.
 
+The installer uses a **portable MT5 in `D:\MT5_GoldScalper`** when there is one (started with `terminal64.exe /portable`; program and data in one folder), otherwise the MT5 in `C:\Program Files\MetaTrader 5`. Edit the `PORTABLE=` line if yours is elsewhere.
+
 ## 2. Attach the EA to a chart
 
 1. Open an **XAUUSD** chart (the name may differ by broker, e.g. `XAUUSDm`, `GOLD`). Any chart timeframe works — the EA always uses M15 for signals.
-2. Press **Ctrl+N** → Expert Advisors → MyEA → drag **GoldScalperM15** onto the chart.
+2. Press **Ctrl+N** → Expert Advisors → MyEA → drag **GoldScalperM15** onto the chart. Use **one** chart only: since v1.51 a second copy on the same symbol refuses to start.
 3. **Common** tab → tick **Allow Algo Trading**.
 4. **Inputs** tab → the defaults are the validated settings (optionally **Load** `GoldScalperM15_Default.set`) → OK.
 5. Make sure the **Algo Trading** button in the top toolbar is green.
@@ -70,9 +66,9 @@ The panel (top-left of the chart) shows:
 | Status | Meaning |
 |---|---|
 | 🟢 Ready - waiting for signal | All filters pass; waiting for a qualifying M15 candle |
-| 🔵 Holding position | A trade is open; the EA is managing SL/TP/trailing |
+| 🔵 Holding position | A trade is open; the EA keeps its SL and closes it at 20:00 |
 | 🟠 Paused | You pressed the pause button |
-| 🔴 Halted: drawdown limit / losing streak | A risk guard paused the EA. Review the recent trades, then press **Resume** (panel or console key `P`). Resuming starts the peak and the streak count afresh |
+| 🔴 Halted: drawdown limit / losing streak / losing days | A risk guard paused the EA. Review the recent trades, then press **Resume** (panel or console key `P`). Resuming starts the peak and the streak count afresh |
 | 🟠 News window | Inside the window before/after a high-impact event |
 | 🟠 Daily loss limit reached | Today's loss hit the configured % — wait for tomorrow |
 | 🟠 Max trades reached | Daily trade limit reached |
@@ -84,34 +80,36 @@ The panel (top-left of the chart) shows:
 - **Pause / Resume** — stops opening new trades (open trades are still managed). The setting is remembered across MT5 restarts.
 - **Test** — system test: opens a real BUY of the minimum lot (with an SL), closes it after 0.1 s (`InpQuickTestHoldMs` = 100) and reports the open/close time and cost. It does not count as a trade of the day. Demo only unless `InpQuickTestReal = true`. Console key: `T`.
 - **Close all** — closes only this EA's positions, after a confirmation dialog. Your manual trades are not affected.
-- **Mode 1: 1 trade/day / Mode 2: multi** — opens a window describing both modes (tested results, who each suits, the lot each would trade today), then asks to confirm the switch. The green button is the active mode; the choice is remembered across MT5 restarts.
-  - **Mode 1** one bigger trade a day (`InpRiskPct`, 1%): 2018–2026 +105%, PF 1.46, DD 16.3%
-  - **Mode 2** several smaller trades, no daily limit (`InpMultiRiskPct`, 0.5%): +74%, PF 1.46, DD 10.5%
-
 > The panel, phone alerts and windows are in English by default; set `InpLanguage = Thai` for Thai.
 
 **System test on demo** — set `InpTestMode = true` (demo accounts only; refused on a real account). The EA opens `InpTestTrades` real trades (default 3) one at a time, alternating BUY/SELL, holds each for `InpTestHoldMin` minutes and closes it, ignoring signals and trading hours. Use it to check order sending, SL, phone alerts, loss diagnosis, the loss cooldown and the journal. Set it back to false afterwards.
 
-**PowerShell console** — open the "GoldScalper Console" shortcut on the Desktop or in the Start menu (create it once with `tools\Make-ConsoleShortcut.ps1`), or double-click `GS15_Console.bat` in the project folder. `A` runs the account check and shows the result. Commands are sent one at a time; the line under the buttons shows the EA's reply. It shows the EA's live status and a colour event log, newest first: opened, won, lost (with the reason), skipped (with the money at risk), news and warnings. Keys: `1` / `2` switch mode (both modes are explained first), `P` pause / resume, `A` account check, `T` test order, `C` close all (type CLOSE to confirm), `L` longer journal, `O` full log in Notepad, `Q` quit. Commands reach the EA within about a second. The EA works the same with the console closed. Files live in MT5's common `Files` folder (`GS15_<symbol>_<magic>_status/log/cmd.txt`); `InpConsole = false` turns this off.
+**PowerShell console** — open the "GoldScalper Console" shortcut on the Desktop or in the Start menu (create it once with `tools\Make-ConsoleShortcut.ps1`), or double-click `GS15_Console.bat` in the project folder. `A` runs the account check and shows the result. Commands are sent one at a time; the line under the buttons shows the EA's reply. It shows the EA's live status and a colour event log, newest first: opened, won, lost (with the reason), skipped (with the money at risk), news and warnings. Keys: `P` pause / resume, `A` account check, `T` test order, `C` close all (type CLOSE to confirm), `L` longer journal, `O` full log in Notepad, `Q` quit. Commands reach the EA within about a second. The EA works the same with the console closed. Files live in MT5's common `Files` folder (`GS15_<symbol>_<magic>_status/log/cmd.txt`); `InpConsole = false` turns this off.
+
+**Console button on the chart** — top right of the chart: **▶ Open console** opens the console window, **■ Close console** closes it. MT5 does not let an EA start programs without DLL imports, so a small background helper does it: run `powershell -ExecutionPolicy Bypass -File tools\Install-ConsoleLauncher.ps1` once. It adds a hidden "GoldScalper Console Launcher" to the Windows Startup folder and starts it; the EA only writes a request file. If the helper is not running the button says **Console (set up)** and explains what to do. `-Remove` uninstalls it; `InpConsoleButton = false` hides the button. Start MT5 and the helper from your own Windows session (Start menu, Desktop shortcut, Startup folder): programs started from inside a sandboxed app can get a separate copy of `%APPDATA%`, and then the console cannot see the EA.
+
+**Headlines** — under the event journal the console shows recent headlines from BBC, CNBC and InfoQuest RSS feeds, refreshed every 10 minutes in the background. They are for information only; the EA does not trade on them. `H` hides / shows them; the feed list is at the top of `tools\GS15_Console.ps1`.
 
 ## 4. Strategy and key settings
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `InpStrategy` | ORB | Asian-range breakout (other modes are kept for research) |
 | `InpRangeStartHour` / `InpRangeEndHour` | 0 / 8 | Range window, server time |
 | `InpMinDailyATRPct` | 1.6 | Trade only when daily ATR ≥ 1.6% of price |
 | `InpSL_ATR` | 4.0 | Stop-loss = 4 × M15 ATR; no TP / breakeven / trailing |
-| `InpMaxTradesPerDay` | 1 | Trades per day (0 = unlimited: every breakout that meets the rules, still with the 20-min loss cooldown). Tested 2018–2026 at 1% risk: 1 trade PF 1.46 / DD 16.3%, unlimited PF 1.36 / DD 19.6%; unlimited at 0.5% risk: PF 1.46 / DD 10.5%. Second trades come after a failed breakout in a choppy day and lose more often, so use a smaller risk % with unlimited. |
+| `InpMaxTradesPerDay` | 1 | One trade a day: the first breakout. Tested 2018–2026: more trades a day came after failed breakouts and lost more often |
+| `InpStopEntry` | false | true = BUY STOP / SELL STOP orders at the range edges instead of waiting for an M15 close (the other side is cancelled on a fill). Tested better in 2024–2026 but with about twice the drawdown; off by default |
 | `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
 | `InpLotMode` | Risk % | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
-| `InpRiskPct` | 1.0 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
-| `InpStrictRisk` | true | Skip a trade if its real risk (SL + slippage + commission, vs equity) exceeds the current mode's %; the skip is reported with the money at risk |
+| `InpRiskPct` | 0.5 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
+| `InpStrictRisk` | true | Skip a trade if its real risk (SL + slippage + commission, vs equity) exceeds `InpRiskPct`; the skip is reported with the money at risk |
 | `InpSlippagePts` | 30 | Slippage allowance at the SL (points), included in the real risk |
 | `InpCommissionLot` | 0 | Round-turn commission per lot (0 on XM Standard) |
 | `InpMaxRiskPct` | 5.0 | Hard cap: skip a trade if its stop would lose > 5% of equity |
 | `InpMaxDDPct` | 20 | Halt (pause, phone alert) when equity falls 20% below its peak. 0 = off. Never reached in 2018–2026 (max DD 14.8%) |
 | `InpMaxLossStreak` | 5 | Halt after 5 losing trades in a row. 0 = off. Would have fired 9 times in 2018–2026 (about once a year) |
+| `InpMaxLosingDays` | 0 | Halt after N losing days in a row (days without trades do not count). 0 = off. Tested with a resume after 7 days: N = 2 halved the profit, N = 3 was better in 2018–2023 but worse in 2024–2026 |
+| `InpNewsMinsBefore` / `InpNewsMinsAfter` | 15 / 15 | News window around high-impact USD events (minutes) |
 | `InpMaxExposure` | 10 | Lot cap: position value ≤ 10 × equity (typical trades are 1–3 ×), against a bad ATR or a tiny stop. 0 = off |
 | `InpMaxLot` | 0 | Optional fixed maximum lot per trade. 0 = off |
 | `InpMaxSpread` | 1.00 | Maximum spread in price units |
@@ -160,12 +158,17 @@ Times are **broker server time** and were validated on XM Global (GMT+2/+3).
 
 **The EA notifies you when:**
 - a trade opens (with SL/TP) or closes (TP hit, SL hit or manual close, with P/L)
-- the stop is moved to breakeven
 - a news window starts or ends
-- the daily loss limit is reached
+- the daily loss limit is reached or a risk guard halts the EA
 - positions are closed before the Friday market close
+- **daily summary** (v1.51, `InpDailySummary`): a few minutes after the daily close — trades, P/L, balance, drawdown, losses in a row, losing days in a row and the state
+- **start / stop** (v1.51, `InpNotifyStartStop`): when the EA starts, with how long it was not running (worked out from the age of its status file, so it also covers a PC that was switched off or lost power); when MT5 closes or the EA is removed
 
-Individual notification types can be turned off in the **Notifications** input group. (Telegram support is planned.)
+Individual notification types can be turned off in the **Notifications** input group. A PC that is off cannot send anything; you learn about it from the start notice when it is back.
+
+### PC watchdog (optional)
+
+`tools\GS15_Watchdog.ps1` checks every 2 minutes during market hours (Mon 04:05 – Sat 03:50 Thai time) that the trading MT5 runs and that the EA status file is fresh, and shows a Windows notification once per problem (and when it is back to normal). It never starts, stops or trades anything. Run it by hand, or add it to the Windows Startup folder if you want it every time you log in. `D:\MT5_GoldScalper\_watchdog\PAUSE` pauses it; the log is `_watchdog\watchdog_log.txt`.
 
 ## 6. Backtesting
 
@@ -175,7 +178,7 @@ Individual notification types can be turned off in the **Notifications** input g
 4. Inputs tab → **Load** a preset → **Start**.
 5. Review Profit Factor (aim for > 1.3), Maximum Drawdown and number of trades.
 
-> The news filter **does not work in the Strategy Tester** (an MT5 limitation), so results include trades taken around news.
+> **News filter in the tester (v1.43+):** the MT5 calendar is not available in the Strategy Tester, so the live EA exports the USD calendar history (moderate + high, from Dec 2017) once a day to `Common\Files\GS15_news_USD.csv`, in GMT. In the tester the EA reads that file and converts each event to server time with the US daylight-saving rule (XM: GMT+2 in winter, GMT+3 in summer), so backtests skip the same news windows as live trading. Run the EA on a live or demo chart once before backtesting (or send `NEWSEXPORT` from the console). `InpNewsInTester = false` turns this off, e.g. to compare with older results, which did not include the news filter.
 > Tick **Visualization** if you want to see the control panel during the test.
 
 ## 7. Troubleshooting
@@ -188,3 +191,5 @@ Individual notification types can be turned off in the **Notifications** input g
 | No push notifications | Follow section 5 / look for "push failed" messages in the Experts tab |
 | Next news always shows "none in 24h" | Open the **Calendar** tab in the Toolbox (Ctrl+T) so MT5 downloads events / check your internet connection |
 | Installation fails | Open `compile.log` to see the error |
+| Chart button says "Console (set up)" | Run `tools\Install-ConsoleLauncher.ps1` once, or sign out and in again so the Startup helper starts |
+| Console shows "WAITING FOR THE EA" while the EA runs | The console and MT5 see different `Files` folders: start both from your own Windows session (see the Console button section) |
