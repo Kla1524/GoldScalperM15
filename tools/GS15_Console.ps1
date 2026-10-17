@@ -420,8 +420,9 @@ function Render-Main($st) {
     } else { Add-KeyValue 'Actual risk' 'no open position' 'Muted' }
     $guard = if ($st['ddmax'] -match '^0(\.0+)?$') { "$(Num $st['ddv'])% (no halt)" } else { "$(Num $st['ddv'])% of $(Num $st['ddmax'] 'N0')% halt" }
     $streak = if ($st['streakmax'] -eq '0') { "$($st['streak']) (no halt)" } else { "$($st['streak']) of $($st['streakmax'])" }
-    if ($script:Dense) { Add-KeyValue 'Guards' ("DD $guard $([char]0x00B7) losses $streak") }
-    else { Add-KeyValue 'Drawdown' $guard; Add-KeyValue 'Losses in a row' $streak }
+    $ldays = if (-not $st.ContainsKey('losingdays')) { '' } elseif ($st['losingdaysmax'] -eq '0') { "$($st['losingdays']) (no halt)" } else { "$($st['losingdays']) of $($st['losingdaysmax'])" }
+    if ($script:Dense) { Add-KeyValue 'Guards' ("DD $guard $([char]0x00B7) losses $streak" + $(if ($ldays) { " $([char]0x00B7) losing days $ldays" } else { '' })) }
+    else { Add-KeyValue 'Drawdown' $guard; Add-KeyValue 'Losses in a row' $streak; if ($ldays) { Add-KeyValue 'Losing days in a row' $ldays } }
 
     # Market & news
     Add-Edge 'mid' 'MARKET & NEWS'

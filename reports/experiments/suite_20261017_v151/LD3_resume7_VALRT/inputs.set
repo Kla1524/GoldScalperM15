@@ -1,0 +1,5 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpTesterHaltDays=7
+InpMaxLosingDays=3

@@ -7,8 +7,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.50"
-#define   VERSION_TEXT "1.50"
+#property version   "1.51"
+#define   VERSION_TEXT "1.51"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -68,6 +68,7 @@ input int    InpMaxTradesPerDay = 1;    // Trades per day (the first breakout of
 input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
 input double InpMaxDDPct        = 20.0; // Halt: pause when equity falls this % below its peak (0 = off)
 input int    InpMaxLossStreak   = 5;    // Halt: pause after this many losing trades in a row (0 = off)
+input int    InpMaxLosingDays   = 0;    // Halt: pause after this many losing days in a row (0 = off; test before use)
 input double InpMaxLot          = 0.0;  // Max lot per trade (0 = off)
 input double InpMaxExposure     = 10.0; // Max position value as a multiple of equity, caps the lot (0 = off)
 input int    InpDailyCloseHour  = 20;   // Close all trades daily at this hour (avoids swap, -1 = off)
@@ -91,6 +92,8 @@ input bool   InpNotifyPush   = true;   // Push notifications to the MT5 mobile a
 input bool   InpNotifyPopup  = false;  // Alert window on the PC
 input bool   InpNotifyTrades = true;   // Notify trade open / close / breakeven
 input bool   InpNotifyNews   = true;   // Notify news windows
+input bool   InpDailySummary = true;   // Daily summary after the daily close: trades, P/L, balance, guards
+input bool   InpNotifyStartStop = true; // Notify when the EA starts (and how long it was not running) and when it stops
 
 input group "=== On-chart panel ==="
 input bool   InpShowPanel = true;  // Show the panel
@@ -169,7 +172,12 @@ string   gvHalt          = "";          // why the EA paused itself: 0 none, 1 d
 double   equityPeak      = 0;
 int      lossStreak      = 0;
 int      haltCode        = 0;
-int      testerHalts[3]  = {0, 0, 0};   // tester: how often each halt would have fired
+int      testerHalts[4]  = {0, 0, 0, 0}; // tester: how often each halt would have fired
+string   gvLosingDays    = "";          // losing days in a row
+string   gvDayEval       = "";          // last server day counted for the losing-days guard
+string   gvSummaryDay    = "";          // last day the daily summary went out
+int      losingDays      = 0;
+long     dayEvaluated    = 0;           // server day number (time / 86400) last counted
 datetime testerResumeAt  = 0;           // tester (InpTesterHaltDays > 0): simulated Resume time
 double   testerHaltDays  = 0;           // tester: days spent halted
 double   testerExtraCost = 0;           // tester (InpTesterSpreadMult > 1): extra spread charged
@@ -192,6 +200,15 @@ int OnInit()
    {
       Print("InpRiskPct must be > 0 and <= InpMaxRiskPct (", InpMaxRiskPct, "%) - otherwise every trade is skipped");
       return INIT_PARAMETERS_INCORRECT;
+   }
+
+   // Two copies of this EA on the same symbol would trade twice (seen in the clip): refuse to start.
+   if(!MQLInfoInteger(MQL_TESTER) && AnotherCopyRunning())
+   {
+      string msg = StringFormat(L("ไม่เริ่มทำงาน: มี GoldScalper บน %s อยู่แล้วในกราฟอื่น - เอาออกให้เหลือตัวเดียว", "Not started: GoldScalper already runs on another %s chart - keep only one"), _Symbol);
+      Notify(msg, "WARN");
+      Alert("GoldScalper " + _Symbol + ": " + msg);
+      return INIT_FAILED;
    }
 
    // Keep a popup-chosen lot setting across timeframe changes, but follow edited inputs.
@@ -238,11 +255,16 @@ int OnInit()
    gvPeak   = PFX + "peak_" + _Symbol + "_" + (string)InpMagic;
    gvStreak = PFX + "streak_" + _Symbol + "_" + (string)InpMagic;
    gvHalt   = PFX + "halt_" + _Symbol + "_" + (string)InpMagic;
+   gvLosingDays = PFX + "losingdays_" + _Symbol + "_" + (string)InpMagic;
+   gvDayEval    = PFX + "dayeval_" + _Symbol + "_" + (string)InpMagic;
+   gvSummaryDay = PFX + "summary_" + _Symbol + "_" + (string)InpMagic;
    if(!MQLInfoInteger(MQL_TESTER))
    {
       equityPeak = GlobalVariableCheck(gvPeak) ? GlobalVariableGet(gvPeak) : 0;
       lossStreak = GlobalVariableCheck(gvStreak) ? (int)GlobalVariableGet(gvStreak) : 0;
       haltCode   = paused && GlobalVariableCheck(gvHalt) ? (int)GlobalVariableGet(gvHalt) : 0;
+      losingDays = GlobalVariableCheck(gvLosingDays) ? (int)GlobalVariableGet(gvLosingDays) : 0;
+      dayEvaluated = GlobalVariableCheck(gvDayEval) ? (long)GlobalVariableGet(gvDayEval) : 0;
    }
    UpdatePeak();
 
@@ -285,6 +307,10 @@ int OnInit()
    if(MQLInfoInteger(MQL_TESTER) && !MQLInfoInteger(MQL_OPTIMIZATION))
       FileDelete(StringFormat("GS15_stress_%s_%I64u_tester.csv", _Symbol, InpMagic), FILE_COMMON);
 
+   if(InpNotifyStartStop && !MQLInfoInteger(MQL_TESTER) && UninitializeReason() != REASON_CHARTCHANGE &&
+      UninitializeReason() != REASON_PARAMETERS && UninitializeReason() != REASON_RECOMPILE)
+      NotifyStarted();
+
    newsExportPending = true;   // refresh the news history file shortly after start (live only)
    EventSetTimer(1);
    ConsoleLog("INFO", StringFormat("GoldScalperM15 v%s started on %s %s | account %s | %s", VERSION_TEXT, _Symbol,
@@ -297,14 +323,20 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
-   if(MQLInfoInteger(MQL_TESTER) && (InpMaxDDPct > 0 || InpMaxLossStreak > 0))
+   if(InpNotifyStartStop && !MQLInfoInteger(MQL_TESTER) &&
+      (reason == REASON_CLOSE || reason == REASON_REMOVE || reason == REASON_ACCOUNT || reason == REASON_PROGRAM))
+      Notify((reason == REASON_CLOSE ? L("EA หยุด: MT5 กำลังปิด", "EA stopped: MT5 is closing")
+            : reason == REASON_ACCOUNT ? L("EA หยุด: เปลี่ยนบัญชี", "EA stopped: account changed")
+            : L("EA หยุด: ถูกเอาออกจากกราฟ", "EA stopped: removed from the chart")) +
+             (CountPositions() > 0 ? L(" | ไม้ที่เปิดอยู่ยังมี SL ที่เซิร์ฟเวอร์", " | the open trade keeps its SL on the server") : ""), "WARN");
+   if(MQLInfoInteger(MQL_TESTER) && (InpMaxDDPct > 0 || InpMaxLossStreak > 0 || InpMaxLosingDays > 0))
    {
       if(InpTesterHaltDays == 0)
-         PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s) "
-                     "(live trading pauses until you resume; the tester carries on)", testerHalts[1], testerHalts[2]);
+         PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s), losing-days halt %d time(s) "
+                     "(live trading pauses until you resume; the tester carries on)", testerHalts[1], testerHalts[2], testerHalts[3]);
       else
-         PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s), paused like live "
-                     "(resume after %d days; -1 = never), %s at the end", testerHalts[1], testerHalts[2], InpTesterHaltDays,
+         PrintFormat("Risk guards in this test: drawdown halt %d time(s), losing-streak halt %d time(s), losing-days halt %d time(s), paused like live "
+                     "(resume after %d days; -1 = never), %s at the end", testerHalts[1], testerHalts[2], testerHalts[3], InpTesterHaltDays,
                      paused ? "still paused" : "trading");
    }
    if(MQLInfoInteger(MQL_TESTER) && InpTesterSpreadMult != 1.0)
@@ -349,6 +381,8 @@ void OnTimer()
    TestStep();
    QuickTestStep();
    UpdatePeak();
+   CheckLosingDays();
+   DailySummaryStep();
    RefreshStatus();
 }
 
@@ -419,6 +453,7 @@ void OnTick()
    }
    ManagePositions();
    UpdatePeak();
+   CheckLosingDays();
 
    if(InpCloseFriday && IsFridayClose())
    {
@@ -1321,6 +1356,7 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, StringFormat("spreadv=%.2f\r\nspreadmax=%.2f\r\natrv=%s\r\n", spread, InpMaxSpread, atrText));
    FileWriteString(f, StringFormat("ddv=%.2f\r\nddmax=%.1f\r\nstreak=%d\r\nstreakmax=%d\r\n",
                                    equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, InpMaxDDPct, lossStreak, InpMaxLossStreak));
+   FileWriteString(f, StringFormat("losingdays=%d\r\nlosingdaysmax=%d\r\n", losingDays, InpMaxLosingDays));
    FileWriteString(f, "servertime=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
    FileClose(f);
 }
@@ -1452,6 +1488,7 @@ string BlockReason(int tradesToday, double profitToday, bool ignoreSpread = fals
    if(TestActive())                       return StringFormat(L("ทดสอบระบบ %d/%d ไม้", "System test %d/%d trades"), testDone, InpTestTrades);
    if(paused && haltCode == 1)            return L("หยุด: พอร์ตลดลงเกินเพดาน - ตรวจแล้วกด Resume", "Halted: drawdown limit - review, then Resume");
    if(paused && haltCode == 2)            return L("หยุด: แพ้ติดกันครบเพดาน - ตรวจแล้วกด Resume", "Halted: losing streak - review, then Resume");
+   if(paused && haltCode == 3)            return L("หยุด: ขาดทุนติดกันครบจำนวนวัน - ตรวจแล้วกด Resume", "Halted: losing days in a row - review, then Resume");
    if(paused)                             return L("หยุดชั่วคราว (กดปุ่ม)", "Paused (button)");
    if(TimeCurrent() < cooldownUntil)      return L("พักหลังแพ้ ถึง ", "Pause after loss until ") + TimeToString(cooldownUntil, TIME_MINUTES);
    if(newsBlocked)                        return L("งดเทรด ช่วงข่าว", "News window - no trades");
@@ -2355,11 +2392,13 @@ void ResetGuards()
 {
    equityPeak = AccountInfoDouble(ACCOUNT_EQUITY);
    lossStreak = 0;
+   losingDays = 0;
    haltCode   = 0;
    if(!MQLInfoInteger(MQL_TESTER))
    {
       GlobalVariableSet(gvPeak, equityPeak);
       GlobalVariableSet(gvStreak, 0);
+      GlobalVariableSet(gvLosingDays, 0);
       GlobalVariableSet(gvHalt, 0);
    }
 }
@@ -2370,6 +2409,123 @@ void SetPaused(bool p)
       ResetGuards();
    paused = p;
    GlobalVariableSet(gvPaused, paused ? 1 : 0);
+}
+
+//+------------------------------------------------------------------+
+//| Looking after the bot (v1.51): duplicate guard, start/stop        |
+//| notices, losing-days halt, daily summary                          |
+//+------------------------------------------------------------------+
+bool AnotherCopyRunning()
+{
+   string me = MQLInfoString(MQL_PROGRAM_NAME);
+   for(long c = ChartFirst(); c >= 0; c = ChartNext(c))
+      if(c != ChartID() && ChartSymbol(c) == _Symbol && ChartGetString(c, CHART_EXPERT_NAME) == me)
+         return true;
+   return false;
+}
+
+string Duration(long secs)
+{
+   if(secs < 3600)  return StringFormat(L("%d นาที", "%d min"), (int)(secs / 60));
+   if(secs < 86400) return StringFormat(L("%d ชม. %d นาที", "%d h %d min"), (int)(secs / 3600), (int)(secs % 3600 / 60));
+   return StringFormat(L("%d วัน %d ชม.", "%d days %d h"), (int)(secs / 86400), (int)(secs % 86400 / 3600));
+}
+
+// The status file is rewritten every second while the EA runs, so its age is how long it was off
+// (PC off, MT5 closed, power cut).
+void NotifyStarted()
+{
+   string sf = ConsoleBase() + "_status.txt";
+   string gap = "";
+   if(InpConsole && FileIsExist(sf, FILE_COMMON))
+   {
+      datetime last = (datetime)FileGetInteger(sf, FILE_MODIFY_DATE, true);
+      long secs = (long)(TimeLocal() - last);
+      if(secs >= 120)
+         gap = StringFormat(L(" | ไม่ได้ทำงาน %s (ตั้งแต่ %s เวลาคอม)", " | was not running for %s (since %s PC time)"), Duration(secs),
+                            TimeToString(last, TIME_DATE | TIME_MINUTES));
+   }
+   Notify(StringFormat(L("EA เริ่มทำงาน v%s บัญชี %s", "EA started v%s, account %s"), VERSION_TEXT, MaskedLogin()) + gap, "INFO");
+}
+
+// Closed P/L of this EA on one server day (day number = time / 86400); trades = entries that day.
+double DayPL(long day, int &trades)
+{
+   trades = 0;
+   double pl = 0;
+   datetime from = (datetime)(day * 86400), to = from + 86400;
+   if(!HistorySelect(from, to - 1))
+      return 0;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0 || HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol ||
+         (ulong)HistoryDealGetInteger(deal, DEAL_MAGIC) != InpMagic)
+         continue;
+      if(HistoryDealGetInteger(deal, DEAL_ENTRY) == DEAL_ENTRY_IN)
+         trades++;
+      pl += HistoryDealGetDouble(deal, DEAL_PROFIT) + HistoryDealGetDouble(deal, DEAL_SWAP) + HistoryDealGetDouble(deal, DEAL_COMMISSION);
+   }
+   return pl;
+}
+
+// After each server day: a day with a loss adds one, a day with a profit resets; days without trades
+// change nothing. Days the EA was not running are counted from the history when it starts again.
+void CheckLosingDays()
+{
+   long today = (long)(TimeCurrent() / 86400);
+   if(today <= 0)
+      return;
+   if(dayEvaluated == 0 || dayEvaluated < today - 10)
+      dayEvaluated = today - 1;
+   if(dayEvaluated >= today - 1)
+      return;
+   for(long d = dayEvaluated + 1; d < today; d++)
+   {
+      int trades;
+      double pl = DayPL(d, trades);
+      if(trades == 0 && pl == 0)
+         continue;
+      if(pl < 0)       losingDays++;
+      else if(pl > 0)  losingDays = 0;
+   }
+   dayEvaluated = today - 1;
+   if(!MQLInfoInteger(MQL_TESTER))
+   {
+      GlobalVariableSet(gvLosingDays, losingDays);
+      GlobalVariableSet(gvDayEval, (double)dayEvaluated);
+   }
+   if(InpMaxLosingDays > 0 && losingDays >= InpMaxLosingDays)
+      Halt(3, StringFormat(L("ขาดทุนติดกัน %d วัน (เพดาน %d)", "%d losing days in a row (limit %d)"), losingDays, InpMaxLosingDays));
+}
+
+// Once a weekday, a few minutes after the daily close (or 23:00 server when the daily close is off).
+void DailySummaryStep()
+{
+   if(!InpDailySummary || MQLInfoInteger(MQL_TESTER))
+      return;
+   MqlDateTime t;
+   TimeToStruct(TimeCurrent(), t);
+   int at = InpDailyCloseHour >= 0 ? InpDailyCloseHour : 23;
+   if(t.day_of_week < 1 || t.day_of_week > 5 || t.hour < at || (t.hour == at && t.min < 5))
+      return;
+   long today = (long)(TimeCurrent() / 86400);
+   if(GlobalVariableCheck(gvSummaryDay) && (long)GlobalVariableGet(gvSummaryDay) >= today)
+      return;
+   GlobalVariableSet(gvSummaryDay, (double)today);
+   int trades;
+   double pl = DayPL(today, trades);
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   string ccy = AccountInfoString(ACCOUNT_CURRENCY);
+   int tt;
+   double pt;
+   GetTodayStats(tt, pt);
+   string reason = BlockReason(tt, pt, true);
+   Notify(StringFormat(L("สรุปวันนี้: %d ไม้, กำไร/ขาดทุน %.2f %s | Balance %.2f | DD จากจุดสูงสุด %.1f%% | แพ้ติดกัน %d ไม้, ขาดทุนติดกัน %d วัน | สถานะ: %s",
+                         "Today: %d trade(s), P/L %.2f %s | balance %.2f | drawdown from peak %.1f%% | losses in a row %d, losing days in a row %d | state: %s"),
+                       trades, pl, ccy, AccountInfoDouble(ACCOUNT_BALANCE),
+                       equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, lossStreak, losingDays,
+                       paused ? reason : L("ทำงานปกติ", "running")), "INFO");
 }
 
 //+------------------------------------------------------------------+
