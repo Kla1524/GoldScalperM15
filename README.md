@@ -5,7 +5,14 @@
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout, one trade a day**
 with strict risk-based position sizing (0.5% per trade), a volatility filter, a news filter (live and in the Strategy Tester), risk guards, loss diagnosis, an on-chart panel, a PowerShell console and mobile push notifications.
 
-**Current version: v1.53** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+**Current version: v1.53** · [Release notes](https://github.com/Kla1524/GoldScalperM15/releases) · [Changelog](CHANGELOG.md) · [User guide](docs/USER_GUIDE.md) · [คู่มือภาษาไทย](docs/USER_GUIDE_TH.md)
+
+## ⚡ Quick start
+
+1. Run **`install_to_MT5.bat`** (compiles the EA and copies it to `MQL5\Experts\MyEA`).
+2. In MT5 open **one** GOLD / XAUUSD chart and drag **GoldScalperM15** onto it; tick *Allow Algo Trading*.
+3. Keep the default inputs (or load `presets/GoldScalperM15_Default.set`). Test on a **demo account** first.
+4. Optional: phone alerts (MetaQuotes ID in *Tools → Options → Notifications*) and the console (`GS15_Console.bat`).
 
 > ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -28,7 +35,7 @@ with strict risk-based position sizing (0.5% per trade), a volatility filter, a 
 **Honest caveats**
 - Most of the profit comes from 2024–2026, when gold was unusually volatile. In quiet years the EA mostly sits out (by design) and earns little.
 - The live demo forward test (target 30–50 trades) started in October 2026; it is not finished.
-- Other ideas were tested and rejected: more trades a day, a smart-money-concepts mode, an EMA/Stochastic scalper and a martingale grid (the grid blew the account with real-tick data — its big 1-minute-OHLC profits were a modelling artefact). Results are in the research branches.
+- Other ideas were tested and rejected: more trades a day, a smart-money-concepts mode, an EMA/Stochastic scalper and a martingale grid (the grid blew the account with real-tick data — its big 1-minute-OHLC profits were a modelling artefact). Results are in the [`research`](https://github.com/Kla1524/GoldScalperM15/tree/research) and [`lab-clip-tests`](https://github.com/Kla1524/GoldScalperM15/tree/lab-clip-tests) branches.
 
 ## 💰 Account size: Standard, Micro and Cent accounts
 
@@ -85,30 +92,23 @@ Attach the EA to **one** GOLD/XAUUSD chart and enable **Allow Algo Trading**. Th
 
 > Times are **broker server time**. The defaults were validated on XM Global (GMT+2/+3). Other brokers may need the hours adjusted.
 
-📖 Full guide: [USER_GUIDE.md](USER_GUIDE.md) · Thai: [USER_GUIDE_TH.md](USER_GUIDE_TH.md) · What changed in each version: [CHANGELOG.md](CHANGELOG.md)
+📖 Full guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md) · Thai: [docs/USER_GUIDE_TH.md](docs/USER_GUIDE_TH.md) · What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
-## 🧪 Reproducing the backtests
+## 🧪 Backtests and research
 
-- `tools/backtest.ps1` — single backtests and optimization from PowerShell.
-- `tools/night_suite.ps1` + `tools/plans/*.ps1` — a list of Strategy Tester runs on a portable MT5 (use a test-only copy with `-Terminal D:\MT5_Tester -NoRestart -Now`); results go to `reports/experiments/suite_<date>/`.
-- `tools/compare_trades.py` — trade-by-trade comparison of two reports (regression evidence); `tools/analyze_exp.py`, `tools/montecarlo.py` — metrics and Monte Carlo.
-
-Paths at the top of the scripts point to the author's MT5 installation; adjust them for yours.
+Every number in this README comes from MT5 Strategy Tester reports kept in the [`research`](https://github.com/Kla1524/GoldScalperM15/tree/research) branch (`reports/experiments/`), together with the scripts that ran them (`tools/night_suite.ps1`, `tools/plans/`) and the analysis tools (trade-by-trade regression, Monte Carlo, close audit). `tools/backtest.ps1` on this branch runs single backtests from PowerShell.
 
 ## 📁 Repository contents
 
 ```
-GoldScalperM15.mq5          EA source code (MQL5)
-install_to_MT5.bat          One-click compile + install helper (Windows)
-GS15_Console.bat            Opens the PowerShell console (tools/GS15_Console.ps1)
-presets/                    Validated default preset
-tools/                      Console, launcher, watchdog, news export, backtest and analysis scripts
-tools/plans/                Backtest plans used for the results
-reports/experiments/        Backtest reports and summaries behind the numbers above
-docs/                       Code review notes, MT5 self-close note
-USER_GUIDE.md / _TH.md      User guide (English / Thai)
-CHANGELOG.md                What changed in each version
-LICENSE / DISCLAIMER.md     MIT license / education-only disclaimer (EN + TH)
+GoldScalperM15.mq5      EA source code (MQL5)
+install_to_MT5.bat      One-click compile + install (Windows)
+GS15_Console.bat        Opens the PowerShell console
+presets/                Default preset (= the EA defaults)
+tools/                  Console, console launcher, watchdog, news export, backtest helper
+docs/                   User guides (EN / TH), code review, MT5 self-close note
+CHANGELOG.md            What changed in each version
+LICENSE · DISCLAIMER.md MIT license · education-only disclaimer (EN + TH)
 ```
 
 ## 📄 License

@@ -1,16 +1,10 @@
 # Compiled EA (build from source with MetaEditor or install_to_MT5.bat)
 *.ex5
 
-# Build / test output
+# Build / test output (backtest reports live in the research branch)
 compile.log
 *.log
 reports/
-
-# Overnight experiment evidence is kept
-!reports/
-reports/*
-!reports/experiments/
-!reports/NIGHT_REPORT.md
 
 __pycache__/
 *.pyc

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
+All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. The reports and plans named below (`reports/experiments/...`, `tools/plans/...`) are in the [`research`](https://github.com/Kla1524/GoldScalperM15/tree/research) branch. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
 ## v1.53 — Close before the market stops (forward set 1)
 - **Session guard** (`InpSessionGuard`, on): the close deadline is the earliest of the strategy's daily close, the Friday close and the end of today's trading session minus `InpCloseBufferMin` (10). The session end comes from rules known in advance: the broker's weekly session table (`SymbolInfoSessionTrade`), the US / EU summer-time dates (in the weeks they differ XM gold stops at about 23:00 server, so the deadline is 22:50) and US holidays with an early close (MLK, Presidents', Memorial, Juneteenth, 4 July, Labor Day, Thanksgiving and the Friday after, 24 and 31 Dec): close and no new trades from `InpHolidayCloseHour` (18:00).
