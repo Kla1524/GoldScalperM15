@@ -462,7 +462,17 @@ void OnTick()
    {
       if(CountPositions() > 0)
       {
-         CloseAll();
+         datetime fri = TimeCurrent() - (TimeCurrent() % 86400) + InpFridayCloseHour * 3600;
+         for(int i = PositionsTotal() - 1; i >= 0; i--)
+         {
+            ulong ticket = PositionGetTicket(i);
+            if(ticket == 0 || !IsMine())
+               continue;
+            PrintFormat("CLOSEAUDIT #%I64u kind=Friday close deadline=%s sent=%s", ticket,
+                        TimeToString(fri, TIME_DATE | TIME_MINUTES), TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+            if(ClosePosition(ticket, L("ก่อนตลาดปิดวันศุกร์", "Friday close")))
+               PrintFormat("CLOSEDONE #%I64u at %s", ticket, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+         }
          Notify(L("ปิดออเดอร์ทั้งหมดก่อนตลาดปิดวันศุกร์", "Closed all trades before the Friday market close"));
       }
       DeleteStopOrders(L("ก่อนตลาดปิดวันศุกร์", "before the Friday close"));
@@ -1366,6 +1376,7 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, StringFormat("ddv=%.2f\r\nddmax=%.1f\r\nstreak=%d\r\nstreakmax=%d\r\n",
                                    equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, InpMaxDDPct, lossStreak, InpMaxLossStreak));
    FileWriteString(f, StringFormat("losingdays=%d\r\nlosingdaysmax=%d\r\n", losingDays, InpMaxLosingDays));
+   FileWriteString(f, StringFormat("sessionguard=%d\r\nclosedeadline=%s\r\n", InpSessionGuard ? 1 : 0, TimeToString(CloseDeadline(), TIME_DATE | TIME_MINUTES)));
    FileWriteString(f, "servertime=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
    FileClose(f);
 }
