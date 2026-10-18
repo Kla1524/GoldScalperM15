@@ -1,0 +1,3 @@
+﻿"Run","From","To","Model","Delay","Deposit","Inputs","Minutes","Net","PF","DDpct","Trades","WinPct","AvgWin","AvgLoss","Expectancy","Recovery","MaxLossStreak","Quality","Years"
+"PROBE_VALRT","2024.10.14","2026.10.12","4","0","10000","InpNotifyPush=false;InpShowPanel=false;InpConsole=false","1","0","0","0","0","0","0","0","0","0","0","100%",""
+"PROBE_DEV","2018.01.01","2023.12.31","1","0","10000","InpNotifyPush=false;InpShowPanel=false;InpConsole=false","1","0","0","0","0","0","0","0","0","0","0","99%",""
