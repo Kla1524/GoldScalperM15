@@ -7,8 +7,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.52"
-#define   VERSION_TEXT "1.52"
+#property version   "1.53"
+#define   VERSION_TEXT "1.53"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -74,6 +74,9 @@ input double InpMaxExposure     = 10.0; // Max position value as a multiple of e
 input int    InpDailyCloseHour  = 20;   // Close all trades daily at this hour (avoids swap, -1 = off)
 input bool   InpCloseFriday     = true; // Close trades before the Friday market close
 input int    InpFridayCloseHour = 21;   // Friday close hour (server time)
+input bool   InpSessionGuard    = true; // Close before gold stops trading: weeks when US and EU summer time differ (trading ends ~23:00 server) and US holidays (early close)
+input int    InpCloseBufferMin  = 10;   // Session guard: close this many minutes before the market stops
+input int    InpHolidayCloseHour = 18;  // Session guard: on US holidays / early-close days, close and take no new trades from this hour (server time)
 
 input group "=== News filter (MT5 economic calendar) ==="
 input bool   InpNewsFilter       = true;   // Enable the news filter
@@ -459,7 +462,17 @@ void OnTick()
    {
       if(CountPositions() > 0)
       {
-         CloseAll();
+         datetime fri = TimeCurrent() - (TimeCurrent() % 86400) + InpFridayCloseHour * 3600;
+         for(int i = PositionsTotal() - 1; i >= 0; i--)
+         {
+            ulong ticket = PositionGetTicket(i);
+            if(ticket == 0 || !IsMine())
+               continue;
+            PrintFormat("CLOSEAUDIT #%I64u kind=Friday close deadline=%s sent=%s", ticket,
+                        TimeToString(fri, TIME_DATE | TIME_MINUTES), TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+            if(ClosePosition(ticket, L("ก่อนตลาดปิดวันศุกร์", "Friday close")))
+               PrintFormat("CLOSEDONE #%I64u at %s", ticket, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+         }
          Notify(L("ปิดออเดอร์ทั้งหมดก่อนตลาดปิดวันศุกร์", "Closed all trades before the Friday market close"));
       }
       DeleteStopOrders(L("ก่อนตลาดปิดวันศุกร์", "before the Friday close"));
@@ -468,17 +481,23 @@ void OnTick()
 
    // Daily close. Also catches positions from a previous day: on early-close holidays
    // there may be no tick between the close hour and midnight.
-   if(InpDailyCloseHour >= 0 && CountPositions() > 0)
+   if((InpDailyCloseHour >= 0 || InpSessionGuard) && CountPositions() > 0)
    {
-      MqlDateTime now;
-      TimeToStruct(TimeCurrent(), now);
       datetime today = TimeCurrent() - (TimeCurrent() % 86400);
+      datetime deadline = CloseDeadline();
       for(int i = PositionsTotal() - 1; i >= 0; i--)
       {
          ulong ticket = PositionGetTicket(i);
-         if(ticket > 0 && IsMine() &&
-            (now.hour >= InpDailyCloseHour || (datetime)PositionGetInteger(POSITION_TIME) < today))
-            ClosePosition(ticket, L("ปิดประจำวัน", "daily close"));
+         if(ticket == 0 || !IsMine())
+            continue;
+         bool late = (datetime)PositionGetInteger(POSITION_TIME) < today;
+         if(!late && TimeCurrent() < deadline)
+            continue;
+         string kind = late ? "LATE (from an earlier day)" : CloseKind();
+         PrintFormat("CLOSEAUDIT #%I64u kind=%s deadline=%s sent=%s", ticket, kind,
+                     TimeToString(late ? today : deadline, TIME_DATE | TIME_MINUTES), TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+         if(ClosePosition(ticket, L("ปิดประจำวัน", "daily close")))
+            PrintFormat("CLOSEDONE #%I64u at %s", ticket, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
       }
    }
 
@@ -1357,6 +1376,7 @@ void WriteConsoleStatus(int tradesToday, double profitToday)
    FileWriteString(f, StringFormat("ddv=%.2f\r\nddmax=%.1f\r\nstreak=%d\r\nstreakmax=%d\r\n",
                                    equityPeak > 0 ? MathMax(0.0, (1.0 - eq / equityPeak) * 100.0) : 0.0, InpMaxDDPct, lossStreak, InpMaxLossStreak));
    FileWriteString(f, StringFormat("losingdays=%d\r\nlosingdaysmax=%d\r\n", losingDays, InpMaxLosingDays));
+   FileWriteString(f, StringFormat("sessionguard=%d\r\nclosedeadline=%s\r\n", InpSessionGuard ? 1 : 0, TimeToString(CloseDeadline(), TIME_DATE | TIME_MINUTES)));
    FileWriteString(f, "servertime=" + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\r\n");
    FileClose(f);
 }
@@ -1495,7 +1515,7 @@ string BlockReason(int tradesToday, double profitToday, bool ignoreSpread = fals
    if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
    if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");
    if(!InSession())                       return L("นอกเวลาเทรด", "Outside trading hours");
-   if(InpDailyCloseHour >= 0 && HourNow() >= InpDailyCloseHour) return L("หลังเวลาปิดประจำวัน", "After the daily close - no new trades");
+   if(TimeCurrent() >= CloseDeadline())  return L("ถึงเวลาปิดประจำวัน / ตลาดใกล้ปิด", "Daily close time / market closes soon - no new trades");
    if(!ignoreSpread && !SpreadOK())       return L("สเปรดกว้างเกิน", "Spread too wide");
    if(!VolatilityOK())                    return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
    return "";
@@ -2062,6 +2082,119 @@ int HourNow()
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
    return dt.hour;
+}
+
+//+------------------------------------------------------------------+
+//| Close deadline (v1.53): the earliest of the strategy's daily close, |
+//| the Friday close and - with InpSessionGuard - the end of today's    |
+//| trading session minus a buffer. Only rules known in advance are     |
+//| used: the broker's weekly session table, the US / EU summer-time    |
+//| dates (in the weeks they differ XM gold stops at ~23:00 server) and |
+//| US holidays with an early close. No knowledge of a day's last tick. |
+//+------------------------------------------------------------------+
+datetime MakeDate(int y, int m, int d)
+{
+   MqlDateTime t;
+   ZeroMemory(t);
+   t.year = y; t.mon = m; t.day = d;
+   return StructToTime(t);
+}
+
+// Day of the month of the n-th weekday (dow 0 = Sunday) in a month; n = -1 = the last one.
+int NthDow(int y, int m, int dow, int n)
+{
+   if(n > 0)
+   {
+      MqlDateTime t;
+      TimeToStruct(MakeDate(y, m, 1), t);
+      return 1 + (dow - t.day_of_week + 7) % 7 + (n - 1) * 7;
+   }
+   int last = 31;
+   while(true)
+   {
+      MqlDateTime t;
+      TimeToStruct(MakeDate(y, m, last), t);
+      if(t.mon == m && t.day_of_week == dow)
+         return last;
+      last--;
+   }
+}
+
+// Weeks when US summer time has started but EU summer time has not (March), or EU has ended but US not (Oct / Nov).
+bool IsDstMismatch(datetime day)
+{
+   MqlDateTime t;
+   TimeToStruct(day, t);
+   int y = t.year;
+   datetime usStart = MakeDate(y, 3, NthDow(y, 3, 0, 2)), euStart = MakeDate(y, 3, NthDow(y, 3, 0, -1));
+   datetime euEnd   = MakeDate(y, 10, NthDow(y, 10, 0, -1)), usEnd = MakeDate(y, 11, NthDow(y, 11, 0, 1));
+   return (day >= usStart && day < euStart) || (day >= euEnd && day < usEnd);
+}
+
+// US holidays on which gold trades with an early close (the full-closure days have no ticks anyway).
+bool IsUSEarlyClose(datetime day)
+{
+   MqlDateTime t;
+   TimeToStruct(day, t);
+   int y = t.year, m = t.mon, d = t.day, w = t.day_of_week;
+   if(m == 1 && d == NthDow(y, 1, 1, 3))  return true;                       // Martin Luther King Jr. Day
+   if(m == 2 && d == NthDow(y, 2, 1, 3))  return true;                       // Presidents' Day
+   if(m == 5 && d == NthDow(y, 5, 1, -1)) return true;                       // Memorial Day
+   if(m == 9 && d == NthDow(y, 9, 1, 1))  return true;                       // Labor Day
+   if(m == 11 && (d == NthDow(y, 11, 4, 4) || d == NthDow(y, 11, 4, 4) + 1)) return true;   // Thanksgiving + Friday after
+   if(m == 12 && (d == 24 || d == 31) && w >= 1 && w <= 5) return true;      // Christmas Eve, New Year's Eve
+   if(m == 7 && ((d == 4 && w >= 1 && w <= 5) || (d == 3 && w == 5) || (d == 5 && w == 1))) return true;   // Independence Day (observed)
+   if(y >= 2022 && m == 6 && ((d == 19 && w >= 1 && w <= 5) || (d == 18 && w == 5) || (d == 20 && w == 1))) return true;   // Juneteenth (observed)
+   return false;
+}
+
+// End of the last trading session of a weekday from the broker's table (seconds after midnight; 86400 = midnight).
+long SessionEndSec(int dow)
+{
+   static long cache[7] = {-1, -1, -1, -1, -1, -1, -1};
+   if(cache[dow] >= 0)
+      return cache[dow];
+   long end = 0;
+   datetime from, to;
+   for(uint i = 0; SymbolInfoSessionTrade(_Symbol, (ENUM_DAY_OF_WEEK)dow, i, from, to); i++)
+      end = MathMax(end, (long)to == 0 ? 86400 : (long)to);
+   cache[dow] = end > 0 ? MathMin(end, (long)86400) : 86400;
+   return cache[dow];
+}
+
+datetime CloseDeadline()
+{
+   datetime now = TimeCurrent(), day = now - now % 86400;
+   MqlDateTime d;
+   TimeToStruct(now, d);
+   long dl = 86400;
+   if(InpDailyCloseHour >= 0)                dl = MathMin(dl, (long)InpDailyCloseHour * 3600);
+   if(InpCloseFriday && d.day_of_week == 5)  dl = MathMin(dl, (long)InpFridayCloseHour * 3600);
+   if(InpSessionGuard)
+   {
+      long sess = SessionEndSec(d.day_of_week);
+      if(IsDstMismatch(day))
+         sess = MathMin(sess, (long)23 * 3600);
+      dl = MathMin(dl, sess - InpCloseBufferMin * 60);
+      if(IsUSEarlyClose(day))
+         dl = MathMin(dl, (long)InpHolidayCloseHour * 3600);
+   }
+   return day + (datetime)dl;
+}
+
+// Which rule set today's deadline (for the close audit).
+string CloseKind()
+{
+   datetime now = TimeCurrent(), day = now - now % 86400;
+   MqlDateTime d;
+   TimeToStruct(now, d);
+   if(InpSessionGuard && IsUSEarlyClose(day) && InpHolidayCloseHour * 3600 <= (InpDailyCloseHour >= 0 ? InpDailyCloseHour * 3600 : 86400))
+      return "US holiday early close";
+   if(InpSessionGuard && IsDstMismatch(day) && 23 * 3600 - InpCloseBufferMin * 60 < (InpDailyCloseHour >= 0 ? InpDailyCloseHour * 3600 : 86400))
+      return "summer-time mismatch week";
+   if(InpCloseFriday && d.day_of_week == 5 && InpFridayCloseHour < (InpDailyCloseHour >= 0 ? InpDailyCloseHour : 24))
+      return "Friday close";
+   return "daily close";
 }
 
 // Entries never open at or after the daily close hour (it would close them on the next tick).

@@ -2,6 +2,15 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.53 — Close before the market stops (forward set 1)
+- **Session guard** (`InpSessionGuard`, on): the close deadline is the earliest of the strategy's daily close, the Friday close and the end of today's trading session minus `InpCloseBufferMin` (10). The session end comes from rules known in advance: the broker's weekly session table (`SymbolInfoSessionTrade`), the US / EU summer-time dates (in the weeks they differ XM gold stops at about 23:00 server, so the deadline is 22:50) and US holidays with an early close (MLK, Presidents', Memorial, Juneteenth, 4 July, Labor Day, Thanksgiving and the Friday after, 24 and 31 Dec): close and no new trades from `InpHolidayCloseHour` (18:00).
+- At the deadline no new trades open; each close is sent, its result code checked and the position confirmed gone. The Experts log has a `CLOSEAUDIT` line (rule, intended time, time sent) and a `CLOSEDONE` line for every close, including the Friday close.
+- Why: tick data showed no prices after 22:59 server in the summer-time mismatch weeks (about 4 weeks a year) and early stops on US holidays, so a close set later than that was never sent and the trade was held to 01:02 the next day (a close sent at 01:00 was rejected with 10018 "market closed").
+- Limits: XM's holiday calendar is not available as a file, so US holiday rules stand in for it; the mismatch-week rule comes from XM's data, not a broker document. The rules were checked against all early stops 2018-2026 (181 days, none missed; one day left 59 seconds of margin) and must be confirmed on new data.
+- Guard off = v1.52 trade by trade. Guard on, defaults: only US-holiday closes move (3-4 trades): 2018-2023 +$1,046 DD 8.1%, 2024-2026 +$2,245 DD 4.1%, real ticks +$1,633 DD 3.8%, no trade held to a later day. T6 (TP 6 ATR) with the guard: +$1,161 DD 6.8% / +$2,175 DD 3.4% / +$1,618 DD 3.1%.
+- The status file shows `sessionguard` and today's `closedeadline`.
+- Forward set 1 on the demo uses this release (tag `v1.53`).
+
 ## v1.52 — No entries after the daily close
 - New entries are blocked at and after the daily close hour (`InpDailyCloseHour`). Before, an entry window that ran past the daily close (e.g. `InpEndHour` 24 with the close at 20:00) opened trades that the daily close shut on the next tick. The defaults (entries until 18:00, close 20:00) never hit this: trade-by-trade identical to v1.51 (473 / 209 / 262 / 227 trades, 0 mismatches).
 - Research with this build (defaults unchanged): later close at 23:00 server (W1a: 2018-2023 +$1,021, 2024-2026 +$2,849, real ticks +$2,357; equity DD 2018-2023 10.5% vs 8.4%), TP 6 ATR (T6: +$1,162 / +$2,184 / +$1,662, lower DD in every period), exit rules A/B, Scalp variants with TP/SL (losing in 2018-2023), order-delay checks. Reports in `reports/experiments/suite_20261017_exits`, `suite_20261017_swap`, `suite_20261018_w1`.
