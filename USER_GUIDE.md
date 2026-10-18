@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.52 — User Guide
+# GoldScalperM15 v1.53 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). One strategy: **Asian-range breakout on volatile days, one trade a day**, wide ATR stop, all positions closed at 20:00 server time. Includes strict 0.5% risk sizing, risk guards, a news filter, an on-chart control panel, a PowerShell console and mobile push notifications (daily summary, start/stop notices).
 
@@ -100,6 +100,7 @@ The panel (top-left of the chart) shows:
 | `InpMaxTradesPerDay` | 1 | One trade a day: the first breakout. Tested 2018–2026: more trades a day came after failed breakouts and lost more often |
 | `InpStopEntry` | false | true = BUY STOP / SELL STOP orders at the range edges instead of waiting for an M15 close (the other side is cancelled on a fill). Tested better in 2024–2026 but with about twice the drawdown; off by default |
 | `InpDailyCloseHour` | 20 | Close everything at 20:00 (avoids swap) |
+| `InpSessionGuard` | true | Also close before gold stops trading: 10 min before the session end (`InpCloseBufferMin`), 22:50 in the weeks US and EU summer time differ, 18:00 on US holidays with an early close (`InpHolidayCloseHour`). Each close is logged (CLOSEAUDIT / CLOSEDONE in the Experts tab) |
 | `InpLotMode` | Risk % | **Fixed lot** (`InpLots`) or **Risk %**: Lot = Balance × `InpRiskPct` ÷ SL points (XM GOLD: 1 point = $1 per lot), rounded down to 0.01 |
 | `InpRiskPct` | 0.5 | Risk per trade when Risk % mode is on (must not exceed `InpMaxRiskPct`) |
 | `InpStrictRisk` | true | Skip a trade if its real risk (SL + slippage + commission, vs equity) exceeds `InpRiskPct`; the skip is reported with the money at risk |

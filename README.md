@@ -1,11 +1,11 @@
 # GoldScalperM15
 
-![Version](https://img.shields.io/badge/version-1.52-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20forward%20test-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.53-blue) ![Platform](https://img.shields.io/badge/platform-MetaTrader%205-0a7bbb) ![Language](https://img.shields.io/badge/language-MQL5-orange) ![Symbol](https://img.shields.io/badge/symbol-XAUUSD%20(Gold)-d4af37) ![Status](https://img.shields.io/badge/status-demo%20forward%20test-yellow) ![License](https://img.shields.io/badge/license-MIT-green)
 
 **MetaTrader 5 Expert Advisor for XAUUSD (Gold) — M15 intraday Asian-range breakout, one trade a day**
 with strict risk-based position sizing (0.5% per trade), a volatility filter, a news filter (live and in the Strategy Tester), risk guards, loss diagnosis, an on-chart panel, a PowerShell console and mobile push notifications.
 
-**Current version: v1.52** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
+**Current version: v1.53** · [What changed in each version (CHANGELOG)](CHANGELOG.md)
 
 > ⚠️ **Disclaimer — for education and research only.** This project is **not investment advice** and **not an invitation, recommendation or solicitation to invest** or to trade any financial product. It is shared as a learning resource on how an EA can be built and tested. Trading gold and other leveraged products carries a high risk of loss. Backtest results do not guarantee future performance. Always test on a demo account first. You are solely responsible for how you use it and for your trading results. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -48,7 +48,7 @@ The start-up **account check** (Experts tab, or a popup from the panel button) d
 3. **Entry:** the first M15 candle of the day that closes above the range high (buy) or below the range low (sell), from 08:00 until 18:00 server time. **One trade a day.** Optional: `InpStopEntry` places BUY STOP / SELL STOP orders at the range edges instead (off by default).
 4. **Confidence score (0–4):** +1 each for trading with the D1 trend, with the H1 trend, ADX(H1) 20–30 and RSI ≥ 70 in the trade direction; entries need ≥ 1 (`InpMinConfidence`).
 5. **Stop:** 4 × ATR(14, M15). No take-profit, breakeven or trailing stop: winners run.
-6. **Exit:** everything is closed at **20:00 server time** (no overnight swap) and before the Friday close.
+6. **Exit:** everything is closed at **20:00 server time** (no overnight swap) and before the Friday close. Since v1.53 a **session guard** (`InpSessionGuard`) also closes before gold stops trading: 10 minutes before the end of the broker's session, at 22:50 in the weeks when US and EU summer time differ, and at 18:00 on US holidays with an early close — all from rules known in advance. Every close is logged with the intended time, the time sent and the confirmed close.
 7. **Position size:** Lot = Equity × 0.5% ÷ (SL + slippage + commission per lot), rounded down; skipped if the minimum lot would exceed 0.5%.
 8. **Risk guards:** daily loss limit 3% (`InpMaxDailyLossPct`), hard cap 5% per trade (`InpMaxRiskPct`), lot cap (`InpMaxExposure`, `InpMaxLot`), 20-minute pause after a loss, news filter ±15 min around high-impact USD events.
    **Halts** (the EA pauses itself and waits for you to review and press Resume; open trades keep their SL): equity 20% below its peak (`InpMaxDDPct`), 5 losing trades in a row (`InpMaxLossStreak`), and optionally N losing days in a row (`InpMaxLosingDays`, off by default).
@@ -117,8 +117,9 @@ LICENSE / DISCLAIMER.md     MIT license / education-only disclaimer (EN + TH)
 
 ## 🗺️ Roadmap
 
-- [ ] Demo forward test: 30–50 trades
+- [ ] Demo forward test: 30–50 trades (set 1 = v1.53 defaults, from 19 Oct 2026)
 - [ ] Exit-rule study (breakeven, shorter stop, partial exits) — tested before any change
+- [x] Session guard: close before the market stops, close audit — v1.53
 - [x] Bot care: daily summary, start/stop notices, duplicate guard, losing-days halt — v1.51
 - [x] One strategy only (modes removed) — v1.50
 - [x] News filter in the Strategy Tester — v1.43
