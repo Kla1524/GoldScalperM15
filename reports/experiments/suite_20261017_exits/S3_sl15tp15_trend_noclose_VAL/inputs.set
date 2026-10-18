@@ -1,0 +1,9 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpMaxTradesPerDay=0
+InpEndHour=24
+InpTP_ATR=1.5
+InpUseTrend=true
+InpDailyCloseHour=-1
+InpSL_ATR=1.5

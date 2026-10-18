@@ -7,8 +7,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.51"
-#define   VERSION_TEXT "1.51"
+#property version   "1.52"
+#define   VERSION_TEXT "1.52"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -1495,6 +1495,7 @@ string BlockReason(int tradesToday, double profitToday, bool ignoreSpread = fals
    if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
    if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");
    if(!InSession())                       return L("นอกเวลาเทรด", "Outside trading hours");
+   if(InpDailyCloseHour >= 0 && HourNow() >= InpDailyCloseHour) return L("หลังเวลาปิดประจำวัน", "After the daily close - no new trades");
    if(!ignoreSpread && !SpreadOK())       return L("สเปรดกว้างเกิน", "Spread too wide");
    if(!VolatilityOK())                    return L("ความผันผวนต่ำ - รอวันที่ตลาดวิ่ง", "Low volatility - waiting for a moving day");
    return "";
@@ -2056,6 +2057,14 @@ bool IsNewBar()
    return true;
 }
 
+int HourNow()
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   return dt.hour;
+}
+
+// Entries never open at or after the daily close hour (it would close them on the next tick).
 bool InSession()
 {
    MqlDateTime dt;

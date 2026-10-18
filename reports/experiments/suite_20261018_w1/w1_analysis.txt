@@ -1,0 +1,50 @@
+﻿run,net,equity_dd_pct,trades,worst_year,worst_year_pl,per_year
+REG152_DEV,1022.15,8.36,209,2021,-214.33,"2019:+320 2020:+435 2021:-214 2022:+363 2023:+118"
+REG152_R1_1pct_nonews_1min_3k,2670.83,14.79,473,2021,-89.69,"2019:+163 2020:+241 2021:-90 2022:+285 2023:+60 2024:+226 2025:+541 2026:+1244"
+REG152_VAL,2222.58,3.97,262,2024,314.85,"2024:+315 2025:+600 2026:+1308"
+REG152_VALRT,1638.34,3.71,227,2024,-114.05,"2024:-114 2025:+580 2026:+1172"
+REG152_VALRT_delay500ms,1624.14,3.72,227,2024,-114.61,"2024:-115 2025:+579 2026:+1159"
+REG152_VALRT_delayrnd,1593.28,3.84,227,2024,-117.43,"2024:-117 2025:+567 2026:+1144"
+S1fix_sl2tp2_trend_close_DEV,-745.82,11.31,292,2021,-568.09,"2019:-92 2020:-32 2021:-568 2022:+284 2023:-338"
+S1fix_sl2tp2_trend_close_VAL,1157.73,6.75,381,2025,223.08,"2024:+298 2025:+223 2026:+636"
+S1fix_sl2tp2_trend_close_VALRT,1231.80,6.84,334,2025,234.35,"2024:+318 2025:+234 2026:+679"
+T6_tp6_DEV,1162.14,6.8,209,2021,-129.04,"2019:+251 2020:+387 2021:-129 2022:+690 2023:-36"
+T6_tp6_VAL,2183.68,3.28,262,2024,308.96,"2024:+309 2025:+589 2026:+1286"
+T6_tp6_VALRT,1662.23,3.01,227,2024,-114.05,"2024:-114 2025:+597 2026:+1180"
+W1_entry23_close23_DEV,960.68,10.39,221,2021,-244.15,"2019:+296 2020:+281 2021:-244 2022:+423 2023:+205"
+W1_entry23_close23_VAL,2661.65,3.74,280,2024,368.19,"2024:+368 2025:+975 2026:+1318"
+W1_entry23_close23_VALRT,2274.54,3.45,241,2024,-105.34,"2024:-105 2025:+849 2026:+1531"
+W1_entry23_close23_VALRT_delay500ms,2266.47,3.46,242,2024,-106.10,"2024:-106 2025:+850 2026:+1522"
+W1_entry23_close23_VALRT_delayrnd,2299.02,3.5,241,2024,-108.32,"2024:-108 2025:+844 2026:+1563"
+W1a_close23_DEV,1021.23,10.49,209,2021,-240.56,"2019:+307 2020:+285 2021:-241 2022:+463 2023:+206"
+W1a_close23_VAL,2849.27,3.19,264,2024,368.99,"2024:+369 2025:+1015 2026:+1465"
+W1a_close23_VALRT,2357.25,3.18,229,2024,-105.34,"2024:-105 2025:+890 2026:+1573"
+W1a_close23_VALRT_delay500ms,2365.37,3.19,229,2024,-106.10,"2024:-106 2025:+891 2026:+1581"
+W1a_close23_VALRT_delayrnd,2303.93,3.2,229,2024,-111.72,"2024:-112 2025:+889 2026:+1527"
+W1b_entry20_close23_DEV,1006.84,10.23,214,2021,-224.56,"2019:+307 2020:+299 2021:-225 2022:+419 2023:+206"
+W1b_entry20_close23_VAL,2674.57,3.48,273,2024,368.19,"2024:+368 2025:+1007 2026:+1299"
+W1b_entry20_close23_VALRT,2272.61,3.18,235,2024,-105.34,"2024:-105 2025:+882 2026:+1496"
+
+[DEV] S1fix net -745.82 (292 trades) | S2 net -981.03 (310 trades)
+  S2 trades held past midnight: 32, P/L -302.84 (of which swap -52.20); same-day trades: 278, P/L -678.19
+  S1fix trades S2 did not take (S2 still holding or the day differed): 16, their P/L in S1fix 94.90
+  S2 trades S1fix did not take: 34, P/L -171.69
+  S1fix first trade of the day: 178 trades, win 48.9%, P/L -128.37
+  S1fix 2nd+ trades of the day: 114 trades, win 42.1%, P/L -617.45
+
+[VAL] S1fix net 1157.73 (381 trades) | S2 net 723.67 (413 trades)
+  S2 trades held past midnight: 48, P/L -355.02 (of which swap -58.33); same-day trades: 365, P/L 1078.69
+  S1fix trades S2 did not take (S2 still holding or the day differed): 11, their P/L in S1fix 133.33
+  S2 trades S1fix did not take: 43, P/L -237.05
+  S1fix first trade of the day: 250 trades, win 55.6%, P/L 1443.50
+  S1fix 2nd+ trades of the day: 131 trades, win 48.1%, P/L -285.77
+
+[VALRT] S1fix net 1231.80 (334 trades) | S2 net 1064.78 (367 trades)
+  S2 trades held past midnight: 39, P/L -190.92 (of which swap -52.14); same-day trades: 328, P/L 1255.70
+  S1fix trades S2 did not take (S2 still holding or the day differed): 7, their P/L in S1fix 125.70
+  S2 trades S1fix did not take: 40, P/L -167.51
+  S1fix first trade of the day: 221 trades, win 56.1%, P/L 1540.08
+  S1fix 2nd+ trades of the day: 113 trades, win 47.8%, P/L -308.28
+
+Swap timing (S2 real ticks): held past 00:00 server: 39 trades, 39 with swap != 0; closed the same server day: 328 trades, 0 with swap != 0
+  closed between 23:00 and 23:59 server: 3 trades, swap total 0.00

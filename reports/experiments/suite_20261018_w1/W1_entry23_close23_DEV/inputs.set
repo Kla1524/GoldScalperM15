@@ -1,0 +1,5 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpEndHour=23
+InpDailyCloseHour=23
