@@ -2,6 +2,10 @@
 
 All notable changes to GoldScalperM15. Backtests use XM Global `GOLD` unless noted. "1-min" = 1-minute OHLC model, "real ticks" = every tick based on real ticks.
 
+## v1.52 — No entries after the daily close
+- New entries are blocked at and after the daily close hour (`InpDailyCloseHour`). Before, an entry window that ran past the daily close (e.g. `InpEndHour` 24 with the close at 20:00) opened trades that the daily close shut on the next tick. The defaults (entries until 18:00, close 20:00) never hit this: trade-by-trade identical to v1.51 (473 / 209 / 262 / 227 trades, 0 mismatches).
+- Research with this build (defaults unchanged): later close at 23:00 server (W1a: 2018-2023 +$1,021, 2024-2026 +$2,849, real ticks +$2,357; equity DD 2018-2023 10.5% vs 8.4%), TP 6 ATR (T6: +$1,162 / +$2,184 / +$1,662, lower DD in every period), exit rules A/B, Scalp variants with TP/SL (losing in 2018-2023), order-delay checks. Reports in `reports/experiments/suite_20261017_exits`, `suite_20261017_swap`, `suite_20261018_w1`.
+
 ## v1.51 — Looking after the bot
 - **Daily summary** push (`InpDailySummary`, on): once a weekday, a few minutes after the daily close (`InpDailyCloseHour`, or 23:00 server when the daily close is off) — trades, closed P/L, balance, drawdown from the peak, losses in a row, losing days in a row and the state.
 - **Start / stop notices** (`InpNotifyStartStop`, on): when the EA starts (not on a timeframe or input change) it reports how long it was not running, from the age of its status file — so it also covers a PC that was off or lost power. When MT5 closes, the account changes or the EA is removed it says so, and whether an open trade keeps its SL.

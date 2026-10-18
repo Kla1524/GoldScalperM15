@@ -1,4 +1,4 @@
-# GoldScalperM15 v1.51 — User Guide
+# GoldScalperM15 v1.52 — User Guide
 
 XAUUSD (Gold) intraday EA for MetaTrader 5 (M15). One strategy: **Asian-range breakout on volatile days, one trade a day**, wide ATR stop, all positions closed at 20:00 server time. Includes strict 0.5% risk sizing, risk guards, a news filter, an on-chart control panel, a PowerShell console and mobile push notifications (daily summary, start/stop notices).
 
