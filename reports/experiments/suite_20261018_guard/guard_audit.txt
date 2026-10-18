@@ -1,0 +1,80 @@
+﻿runs in log: 15, runs listed: 15
+
+REG153off_R1_1pct_nonews_1min_3k: net 2670.83, equity DD 14.79%, trades 473
+  closes by rule: LATE (from an earlier day) 18, daily close 304
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 2, swap 1.86
+     2019.07.04 09:30:00 -> 2019.07.05 01:02:00  swap 1.03  P/L -8.82
+     2020.09.07 09:00:00 -> 2020.09.08 01:02:00  swap 0.83  P/L -1.13
+
+REG153off_DEV: net 1022.15, equity DD 8.36%, trades 209
+  closes by rule: LATE (from an earlier day) 18, daily close 123
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 2, swap 2.89
+     2019.07.04 09:30:00 -> 2019.07.05 01:02:00  swap 1.65  P/L -14.11
+     2020.09.07 09:00:00 -> 2020.09.08 01:02:00  swap 1.24  P/L -1.70
+
+REG153off_VAL: net 2222.58, equity DD 3.97%, trades 262
+  closes by rule: daily close 179
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+REG153off_VALRT: net 1638.34, equity DD 3.71%, trades 227
+  closes by rule: daily close 159
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+BASE153_DEV: net 1045.90, equity DD 8.11%, trades 209
+  closes by rule: US holiday early close 3, daily close 122
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+BASE153_VAL: net 2245.06, equity DD 4.08%, trades 262
+  closes by rule: US holiday early close 3, daily close 176
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+BASE153_VALRT: net 1633.23, equity DD 3.83%, trades 227
+  closes by rule: US holiday early close 3, daily close 156
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+T6g_DEV: net 1161.49, equity DD 6.77%, trades 209
+  closes by rule: US holiday early close 2, daily close 65
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+T6g_VAL: net 2174.96, equity DD 3.4%, trades 262
+  closes by rule: US holiday early close 2, daily close 105
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+T6g_VALRT: net 1617.87, equity DD 3.14%, trades 227
+  closes by rule: US holiday early close 2, daily close 97
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+W1ag_DEV: net 1040.14, equity DD 10.23%, trades 209
+  closes by rule: US holiday early close 3, daily close 74, summer-time mismatch week 14
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+W1ag_VAL: net 2735.20, equity DD 3.57%, trades 264
+  closes by rule: US holiday early close 3, daily close 129, summer-time mismatch week 8
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+W1ag_VALRT: net 2290.81, equity DD 3.33%, trades 229
+  closes by rule: US holiday early close 3, daily close 114, summer-time mismatch week 8
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+BASE153_VALRT_delayrnd: net 1596.61, equity DD 3.93%, trades 227
+  closes by rule: US holiday early close 3, daily close 156
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
+
+T6g_VALRT_delayrnd: net 1590.23, equity DD 3.21%, trades 227
+  closes by rule: US holiday early close 2, daily close 97
+  sent more than an hour after the deadline: 0; audit without a confirmed close: 0
+  trades closed on a later server day: 0, swap 0.00
