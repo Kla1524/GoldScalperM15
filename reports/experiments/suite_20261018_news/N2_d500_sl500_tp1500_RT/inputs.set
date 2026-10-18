@@ -1,0 +1,6 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpStrategy=3
+InpNTPPts=1500
+InpNDistPts=500

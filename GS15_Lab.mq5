@@ -5,6 +5,8 @@
 //|  1 = EMA 20/50 + Stochastic pullback, many trades, fixed risk      |
 //|  2 = RSI martingale grid: lot x2 on each step against, basket      |
 //|      closed at a profit target or at a basket stop (% of equity)   |
+//|  3 = news straddle (TikTok clip): BUY STOP + SELL STOP around the  |
+//|      price before NFP / CPI / Fed decisions, one cancels the other |
 //+------------------------------------------------------------------+
 #property copyright "GoldScalper lab"
 #property version   "0.10"
@@ -13,7 +15,7 @@
 #include <Trade\Trade.mqh>
 
 input group "=== General ==="
-input int    InpStrategy      = 1;        // 1 = EMA20/50 + Stochastic, 2 = RSI martingale grid
+input int    InpStrategy      = 1;        // 1 = EMA20/50 + Stochastic, 2 = RSI martingale grid, 3 = news straddle
 input ulong  InpMagic         = 20261017; // Magic number
 input double InpMaxSpread     = 1.00;     // Max spread for a new entry (price units)
 input int    InpStartHour     = 1;        // New entries from (hour, server time)
@@ -55,7 +57,23 @@ input double InpRSILow      = 30;    // RSI crosses down through this -> BUY
 input int    InpBasketTPPts = 300;   // Close the basket when its profit >= first lot x this many points
 input double InpBasketSLPct = 27.5;  // Close the basket when its loss >= this % of the equity at its start (clip: $55 of $200)
 
+input group "=== 3: news straddle ==="
+input string InpNEvents      = "Nonfarm Payrolls,CPI,Fed Interest Rate Decision"; // Exact event names ("" = every high-impact USD event)
+input int    InpNMinsBefore  = 2;     // Place the two stop orders this many minutes before the event
+input int    InpNDistPts     = 300;   // Distance of each stop order from the price (points; 100 points = $1)
+input int    InpNSLPts       = 500;   // SL (points from the order price)
+input int    InpNTPPts       = 1000;  // TP (points, 0 = none)
+input int    InpNTrailPts    = 0;     // Trailing SL distance once in profit by this much (points, 0 = off)
+input int    InpNExpiryMin   = 10;    // Delete orders not filled this many minutes after the event
+input int    InpNHoldMin     = 60;    // Close the trade this many minutes after the event
+
 CTrade trade;
+datetime evT[];
+int      evI = 0;
+datetime evDone = 0;
+int      nEvents = 0, nFilled = 0, nBoth = 0, nWins = 0;
+double   nSlipSum = 0, nSlipMax = 0;
+int      nSlipCount = 0;
 int hEmaF = INVALID_HANDLE, hEmaS = INVALID_HANDLE, hSto = INVALID_HANDLE, hAtr = INVALID_HANDLE, hRsi = INVALID_HANDLE;
 datetime lastBar = 0;
 datetime newsT[];
@@ -89,6 +107,9 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
+   if(InpStrategy == 3)
+      PrintFormat("LAB news stats: events %d, filled %d, both sides filled %d, avg entry slippage %.0f pts, max %.0f pts",
+                  nEvents, nFilled, nBoth, nSlipCount > 0 ? nSlipSum / nSlipCount : 0.0, nSlipMax);
    if(InpStrategy == 2)
       PrintFormat("LAB grid stats: max levels %d, max basket lot %.2f, worst basket %.2f", maxLevelsSeen, maxBasketLot, worstBasket);
 }
@@ -292,6 +313,121 @@ void Strategy2(bool newBar)
    }
 }
 
+//--- 3: news straddle
+void LoadEvents()
+{
+   int f = FileOpen(InpNewsFile, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(f == INVALID_HANDLE) { Print("LAB: news file not found"); return; }
+   FileReadString(f);
+   int n = 0;
+   while(!FileIsEnding(f))
+   {
+      string q[];
+      if(StringSplit(FileReadString(f), ',', q) < 4) continue;
+      if((int)StringToInteger(q[2]) < 3 || q[1] != "USD") continue;
+      if(InpNEvents != "" && StringFind("," + InpNEvents + ",", "," + q[3] + ",") < 0) continue;
+      datetime t = StringToTime(q[0]);
+      t += (UsDst(t) ? 3 : 2) * 3600;
+      if(n > 0 && evT[n - 1] == t) continue;   // CPI, CPI m/m, CPI y/y at the same time
+      ArrayResize(evT, n + 1, 1024);
+      evT[n++] = t;
+   }
+   FileClose(f);
+   ArraySort(evT);
+   PrintFormat("LAB: %d news events for the straddle", n);
+}
+
+int CountOrders()
+{
+   int n = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong tk = OrderGetTicket(i);
+      if(tk > 0 && OrderGetInteger(ORDER_MAGIC) == (long)InpMagic && OrderGetString(ORDER_SYMBOL) == _Symbol) n++;
+   }
+   return n;
+}
+
+void DeleteOrders()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong tk = OrderGetTicket(i);
+      if(tk > 0 && OrderGetInteger(ORDER_MAGIC) == (long)InpMagic && OrderGetString(ORDER_SYMBOL) == _Symbol)
+         trade.OrderDelete(tk);
+   }
+}
+
+void Strategy3()
+{
+   static bool loaded = false;
+   if(!loaded) { loaded = true; LoadEvents(); }
+   int n = ArraySize(evT);
+   datetime now = TimeCurrent();
+   while(evI < n && evT[evI] + InpNHoldMin * 60 < now && evT[evI] != evDone) evI++;
+   double lots, profit, lp, ll; int dir;
+   int pos = CountPos(lots, profit, lp, ll, dir);
+   int ord = CountOrders();
+   if(pos > 0 && ord > 0) DeleteOrders();                       // one filled: cancel the other
+   if(pos > 0 && InpNTrailPts > 0)
+   {
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         ulong tk = PositionGetTicket(i);
+         if(tk == 0 || PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+         bool buy = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY;
+         double px = buy ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         double open = PositionGetDouble(POSITION_PRICE_OPEN), sl = PositionGetDouble(POSITION_SL);
+         double gain = (buy ? px - open : open - px) / _Point;
+         if(gain < InpNTrailPts) continue;
+         double nsl = NormalizeDouble(buy ? px - InpNTrailPts * _Point : px + InpNTrailPts * _Point, _Digits);
+         if((buy && nsl > sl + _Point) || (!buy && (sl == 0 || nsl < sl - _Point)))
+            trade.PositionModify(tk, nsl, PositionGetDouble(POSITION_TP));
+      }
+   }
+   if(evDone > 0)
+   {
+      if(ord > 0 && now >= evDone + InpNExpiryMin * 60) DeleteOrders();
+      if(pos > 0 && now >= evDone + InpNHoldMin * 60) CloseAll();
+      if(now >= evDone + InpNHoldMin * 60) evDone = 0;
+      return;
+   }
+   if(evI >= n || pos > 0 || ord > 0) return;
+   datetime ev = evT[evI];
+   if(now < ev - InpNMinsBefore * 60 || now >= ev) return;
+   MqlDateTime t; TimeToStruct(now, t);
+   if(t.day_of_week == 5 && t.hour >= InpFridayCloseHour - 1) return;
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double risk = AccountInfoDouble(ACCOUNT_EQUITY) * InpRiskPct / 100.0;
+   double lot = NormLot(risk / (InpNSLPts * MoneyPerPointLot()));
+   if(lot * InpNSLPts * MoneyPerPointLot() > risk * 1.5) return;
+   double b = NormalizeDouble(ask + InpNDistPts * _Point, _Digits), sP = NormalizeDouble(bid - InpNDistPts * _Point, _Digits);
+   trade.BuyStop(lot, b, _Symbol, NormalizeDouble(b - InpNSLPts * _Point, _Digits), InpNTPPts > 0 ? NormalizeDouble(b + InpNTPPts * _Point, _Digits) : 0, ORDER_TIME_GTC, 0, "lab news buy");
+   trade.SellStop(lot, sP, _Symbol, NormalizeDouble(sP + InpNSLPts * _Point, _Digits), InpNTPPts > 0 ? NormalizeDouble(sP - InpNTPPts * _Point, _Digits) : 0, ORDER_TIME_GTC, 0, "lab news sell");
+   evDone = ev;
+   nEvents++;
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest &request, const MqlTradeResult &result)
+{
+   if(InpStrategy != 3 || trans.type != TRADE_TRANSACTION_DEAL_ADD || !HistoryDealSelect(trans.deal)) return;
+   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != (long)InpMagic) return;
+   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(entry == DEAL_ENTRY_IN)
+   {
+      static datetime lastEv = 0;
+      if(lastEv == evDone) nBoth++; else nFilled++;
+      lastEv = evDone;
+      ulong ord = (ulong)HistoryDealGetInteger(trans.deal, DEAL_ORDER);
+      if(HistoryOrderSelect(ord))
+      {
+         double slip = MathAbs(HistoryDealGetDouble(trans.deal, DEAL_PRICE) - HistoryOrderGetDouble(ord, ORDER_PRICE_OPEN)) / _Point;
+         nSlipSum += slip; nSlipCount++; nSlipMax = MathMax(nSlipMax, slip);
+      }
+   }
+   else if(HistoryDealGetDouble(trans.deal, DEAL_PROFIT) > 0) nWins++;
+}
+
 void OnTick()
 {
    MqlDateTime t; TimeToStruct(TimeCurrent(), t);
@@ -305,6 +441,7 @@ void OnTick()
    datetime bar = iTime(_Symbol, PERIOD_M15, 0);
    bool newBar = bar != lastBar;
    lastBar = bar;
-   if(InpStrategy == 1) Strategy1(newBar);
-   else                 Strategy2(newBar);
+   if(InpStrategy == 1)      Strategy1(newBar);
+   else if(InpStrategy == 2) Strategy2(newBar);
+   else                      Strategy3();
 }
