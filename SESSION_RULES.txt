@@ -1,0 +1,32 @@
+Session range breakout - rules fixed BEFORE testing (21 Oct 2026). No parameter is tuned on the results.
+EA: GS_Sessions_Lab.mq5 (tester only). Market: XM GOLD, M15. Server time = GMT+2 (winter) / GMT+3 (while US summer time is on).
+Thai time = server + 4 h while US summer time is on (2nd Sunday of March - 1st Sunday of November), server + 5 h otherwise.
+
+1) ASIA (= the live EA's strategy)
+   Range:   00:00-08:00 server          (Thai summer 04:00-12:00 | winter 05:00-13:00)
+   Entries: 08:00-18:00 server          (Thai summer 12:00-22:00 | winter 13:00-23:00)
+
+2) LONDON - first hour of the London session
+   Range:   08:00-09:00 London time; entries 09:00-12:00 London time
+   London time = server - 2 h, except the weeks when US summer time is on and UK/EU summer time is off
+   (2nd Sunday of March -> last Sunday of March; last Sunday of October -> 1st Sunday of November): server - 3 h.
+   Normal weeks:   range 10:00-11:00 server, entries 11:00-14:00 server  (Thai summer 14:00-15:00 / 15:00-18:00 | winter 15:00-16:00 / 16:00-19:00)
+   Mismatch weeks: range 11:00-12:00 server, entries 12:00-15:00 server  (Thai 15:00-16:00 / 16:00-19:00)
+
+3) NEW YORK - first hour of the New York morning
+   Range:   08:00-09:00 New York time; entries 09:00-11:00 New York time
+   New York time = server - 7 h all year (both follow US summer time).
+   Range 15:00-16:00 server, entries 16:00-18:00 server (Thai summer 19:00-20:00 / 20:00-22:00 | winter 20:00-21:00 / 21:00-23:00)
+
+Same for all three (copied from the live EA, not tuned):
+ - Signal: first M15 bar that closes beyond the range with the previous bar's close inside it; one trade a day per system.
+ - Filters: ATR(D1) >= 1.6 % of price; confidence score >= 1 (D1 EMA50, H1 EMA200, ADX(H1) 20-30, RSI(14) >= 70 / <= 30 with the trade);
+   spread <= 1.0; no entries within 15 min of high-impact USD news; daily loss limit 3 % across all systems.
+ - Risk: 0.5 % of equity per trade per system (strict: skipped if the minimum lot would risk more); SL = 4 x ATR(M15); no TP.
+ - Exit: SL, or the close at 19:00 server (18:00 on US holidays with an early close); Friday the same. No overnight holding.
+ - Systems run independently: up to 3 positions at once (3 x 0.5 % = 1.5 % open risk at most).
+
+Tests: each system alone, Asia+London, Asia+New York, all three; 2018-2023 (1-min OHLC), 2024-Oct 2026 (1-min OHLC),
+Oct 2024-Oct 2026 real ticks (spread included) and real ticks with random order delay. Results in R per trade.
+2024-2026 has already been looked at many times while choosing settings - treat it as research, not as proof.
+Nothing goes to the demo from this test; a forward test on new data comes first.
