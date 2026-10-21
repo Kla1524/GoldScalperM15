@@ -1,4 +1,4 @@
-﻿# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
+# Overnight backtest suite on the MAIN MT5 terminal (the one that runs the demo), as agreed:
 # start after the daily close, run one backtest at a time, restart MT5 at the end.
 # The main terminal is the portable MT5 in D:\MT5_GoldScalper (started with /portable).
 #
@@ -96,12 +96,13 @@ function Run-One($r) {
     $lines = [string[]]($all.Keys | ForEach-Object { "$_=$($all[$_])" })
     [IO.File]::WriteAllLines("$Data\MQL5\Profiles\Tester\$set", $lines, [Text.UnicodeEncoding]::new($false, $true))
     $lines | Set-Content "$dir\inputs.set"
+    $sym = if ($r.Symbol) { $r.Symbol } else { 'GOLD' }
     $ini = "$dir\tester.ini"
     @"
 [Tester]
 Expert=MyEA\Dev\GS15_dev.ex5
 ExpertParameters=$set
-Symbol=GOLD
+Symbol=$sym
 Period=M15
 Model=$($r.Model)
 Optimization=0

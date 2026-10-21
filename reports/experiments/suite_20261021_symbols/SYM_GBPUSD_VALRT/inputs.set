@@ -1,0 +1,7 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpMaxSpread=1000000
+InpMinDailyATRPct=0
+InpDailyCloseHour=19
+InpRiskPct=0.5

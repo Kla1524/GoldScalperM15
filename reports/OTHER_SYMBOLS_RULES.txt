@@ -1,0 +1,11 @@
+﻿Same strategy on other instruments - rules fixed BEFORE testing (21 Oct 2026). No tuning per instrument.
+Strategy: GoldScalperM15 v1.54 build with the live settings (Asian range 00:00-08:00 server, entries 08:00-18:00 server, first M15 close
+beyond the range, confidence >= 1, SL 4 x ATR(M15), no TP, close 19:00 server + session guard, 1 trade a day, news +/-15 min USD).
+Risk 0.5 % per trade (research size, results also in R).
+Two gold-specific limits cannot transfer as they are, so for EVERY instrument (and a gold reference run) they are switched off:
+  - volatility filter ATR(D1) >= 1.6 % of price (forex moves ~0.5-0.8 % a day, so 1.6 % would block every forex day) -> InpMinDailyATRPct = 0
+  - max spread 1.00 price unit (meaningless across instruments) -> no spread filter; real-tick tests still pay the real spread
+Instruments (XM demo names): SILVER, US100Cash, US30Cash, US500Cash, GER40Cash, JP225Cash, EURUSD, GBPUSD, USDJPY, BTCUSD.
+Periods: 2018-2023 (1-min OHLC), 2024 - Oct 2026 (1-min OHLC), Oct 2024 - Oct 2026 real ticks. Where the broker has no history the run is reported as missing.
+Pass rule (decided now): an instrument is a candidate only if it is profitable in ALL three periods with PF >= 1.15 in each;
+then it is tested together with gold for combined DD and open risk. Nothing goes to the demo from this test without new forward data.
