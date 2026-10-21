@@ -7,8 +7,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.53"
-#define   VERSION_TEXT "1.53"
+#property version   "1.54"
+#define   VERSION_TEXT "1.54"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -44,6 +44,9 @@ input int    InpRangeStartHour = 0;  // Range start (hour, server time)
 input int    InpRangeEndHour   = 8;  // Range end / breakouts from (hour, server time)
 input bool   InpStopEntry      = false; // Enter with BUY STOP / SELL STOP orders at the range edges (the other side is cancelled on a fill) instead of waiting for an M15 close beyond the range
 input int    InpStopEntryBufPts = 0;   // Stop-entry: extra distance beyond the range edge (points)
+input bool   InpRetestEntry     = false; // Breakout + retest: after an M15 close beyond the range, wait for price to come back to the range edge (limit order) instead of entering at once
+input int    InpRetestBufPts    = 0;     // Retest: limit order this many points beyond the edge (toward the breakout side)
+input int    InpRetestMaxBars   = 8;     // Retest: cancel the limit order if not filled within this many M15 bars
 input int    InpRSIPeriod   = 14;    // RSI period (confidence score, journal)
 
 input group "=== SL / TP (multiples of ATR) ==="
@@ -65,6 +68,8 @@ input int    InpSlippagePts     = 30;   // Slippage allowance at the SL (points)
 input double InpCommissionLot   = 0.0;  // Round-turn commission per 1 lot (account currency; XM Standard = 0)
 input double InpMaxRiskPct      = 5.0;  // Hard cap: skip if the SL would lose more than % of equity (0 = off)
 input int    InpMaxTradesPerDay = 1;    // Trades per day (the first breakout of the day; 0 = unlimited, not recommended)
+input bool   InpStopDayAfterLoss = false; // No new trades for the rest of the day after a losing trade
+input bool   InpSkipMonday      = false; // No new trades on Mondays
 input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
 input double InpMaxDDPct        = 20.0; // Halt: pause when equity falls this % below its peak (0 = off)
 input int    InpMaxLossStreak   = 5;    // Halt: pause after this many losing trades in a row (0 = off)
@@ -181,6 +186,9 @@ string   gvDayEval       = "";          // last server day counted for the losin
 string   gvSummaryDay    = "";          // last day the daily summary went out
 int      losingDays      = 0;
 long     dayEvaluated    = 0;           // server day number (time / 86400) last counted
+long     lastLossDay     = 0;           // server day number of the last losing trade (InpStopDayAfterLoss)
+string   gvLossDay       = "";
+double   rtAtr           = 0;           // retest entry: M15 ATR at the signal
 datetime testerResumeAt  = 0;           // tester (InpTesterHaltDays > 0): simulated Resume time
 double   testerHaltDays  = 0;           // tester: days spent halted
 double   testerExtraCost = 0;           // tester (InpTesterSpreadMult > 1): extra spread charged
@@ -261,6 +269,9 @@ int OnInit()
    gvLosingDays = PFX + "losingdays_" + _Symbol + "_" + (string)InpMagic;
    gvDayEval    = PFX + "dayeval_" + _Symbol + "_" + (string)InpMagic;
    gvSummaryDay = PFX + "summary_" + _Symbol + "_" + (string)InpMagic;
+   gvLossDay    = PFX + "lossday_" + _Symbol + "_" + (string)InpMagic;
+   if(!MQLInfoInteger(MQL_TESTER) && GlobalVariableCheck(gvLossDay))
+      lastLossDay = (long)GlobalVariableGet(gvLossDay);
    if(!MQLInfoInteger(MQL_TESTER))
    {
       equityPeak = GlobalVariableCheck(gvPeak) ? GlobalVariableGet(gvPeak) : 0;
@@ -511,6 +522,8 @@ void OnTick()
    TrackOpenTrade();
    if(InpStopEntry)
       StopEntryOnTick();
+   if(InpRetestEntry)
+      RetestOnTick();
 
    if(!IsNewBar())
       return;
@@ -552,6 +565,11 @@ void OnTick()
          ConsoleLog("SKIP", skipMsg);
          return;
       }
+   }
+   if(InpRetestEntry && signal != 0 && ((signal > 0 && InpAllowBuy) || (signal < 0 && InpAllowSell)))
+   {
+      PlaceRetest(signal, a);
+      return;
    }
    if(signal > 0 && InpAllowBuy)       OpenTrade(ORDER_TYPE_BUY,  a);
    else if(signal < 0 && InpAllowSell) OpenTrade(ORDER_TYPE_SELL, a);
@@ -661,6 +679,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    string codes = "", thai = "";
    if(pl < 0)
    {
+      lastLossDay = (long)(TimeCurrent() / 86400);
+      if(!MQLInfoInteger(MQL_TESTER))
+         GlobalVariableSet(gvLossDay, (double)lastLossDay);
       LossReasons(exitCode, codes, thai);
       if(InpLossCooldownMin > 0)
       {
@@ -1171,6 +1192,86 @@ void StopEntryOnTick()
    }
 }
 
+//+------------------------------------------------------------------+
+//| Breakout + retest (InpRetestEntry, v1.54): the M15 close beyond   |
+//| the range arms a limit order at the range edge (BUY LIMIT above,  |
+//| SELL LIMIT below), valid InpRetestMaxBars bars and never past the |
+//| close deadline. Same lot, SL, TP and risk checks as other entries.|
+//+------------------------------------------------------------------+
+#define RETEST_COMMENT "GoldScalper RETEST"
+
+int DayOfWeekNow()
+{
+   MqlDateTime d;
+   TimeToStruct(TimeCurrent(), d);
+   return d.day_of_week;
+}
+
+void DeleteRetestOrders(string why)
+{
+   for(int k = 0; k < 2; k++)
+   {
+      ulong t = StopOrderTicket(k == 0 ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT);
+      if(t > 0 && trade.OrderDelete(t))
+         ConsoleLog("INFO", StringFormat(L("ยกเลิกคำสั่งรอ retest %s (%s)", "Cancelled the retest %s (%s)"), k == 0 ? "BUY LIMIT" : "SELL LIMIT", why));
+   }
+}
+
+void PlaceRetest(int dir, double atr)
+{
+   DeleteRetestOrders(L("สัญญาณใหม่", "new signal"));
+   double edge = dir > 0 ? orbHigh : orbLow;
+   if(edge <= 0)
+      return;
+   double slDist  = MathMax(atr * InpSL_ATR, MinStopDistance());
+   double tpDist  = MathMax(atr * InpTP_ATR, MinStopDistance());
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double price = NormPrice(dir > 0 ? edge + InpRetestBufPts * _Point : edge - InpRetestBufPts * _Point);
+   // Price already back at the edge: enter now (the retest is happening).
+   if(dir > 0 ? price >= ask - MinStopDistance() : price <= bid + MinStopDistance())
+   {
+      OpenTrade(dir > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, atr);
+      return;
+   }
+   string side = dir > 0 ? "BUY LIMIT" : "SELL LIMIT";
+   double lots = StopEntryLots(side, price, slDist);
+   if(lots <= 0 || !AcquireOrderLock())
+      return;
+   datetime now = TimeCurrent();
+   datetime expiry = MathMin(now + InpRetestMaxBars * PeriodSeconds(InpTF), CloseDeadline());
+   if(expiry <= now + 60)
+      return;
+   double sl = NormPrice(dir > 0 ? price - slDist : price + slDist);
+   double tp = InpTP_ATR > 0 ? NormPrice(dir > 0 ? price + tpDist : price - tpDist) : 0;
+   bool ok = dir > 0 ? trade.BuyLimit(lots, price, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, expiry, RETEST_COMMENT)
+                     : trade.SellLimit(lots, price, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, expiry, RETEST_COMMENT);
+   if(ok)
+   {
+      rtAtr = atr;
+      ConsoleLog("INFO", StringFormat(L("วาง %s %.2f lot @ %s (รอราคากลับมาทดสอบกรอบ) | SL %s | ถึง %s", "Placed %s %.2f lot @ %s (waiting for the retest) | SL %s | until %s"),
+                                      side, lots, DoubleToString(price, _Digits), DoubleToString(sl, _Digits), TimeToString(expiry, TIME_MINUTES)));
+   }
+   else
+      NotifyFailure(StringFormat(L("วาง %s ไม่สำเร็จ: %d %s", "Placing %s failed: %d %s"), side, trade.ResultRetcode(), trade.ResultRetcodeDescription()));
+}
+
+void RetestOnTick()
+{
+   if(CountPositions() > 0)
+   {
+      DeleteRetestOrders(L("มีไม้เปิดแล้ว", "a position is open"));
+      return;
+   }
+   if(StopOrderTicket(ORDER_TYPE_BUY_LIMIT) == 0 && StopOrderTicket(ORDER_TYPE_SELL_LIMIT) == 0)
+      return;
+   int    tradesToday;
+   double profitToday;
+   GetTodayStats(tradesToday, profitToday);
+   string block = BlockReason(tradesToday, profitToday, true);
+   if(block != "")
+      DeleteRetestOrders(block);
+}
+
 // A deal that opened a position: when it came from one of the stop orders, record the entry like a market entry.
 void StopEntryFilled(ulong deal)
 {
@@ -1178,9 +1279,11 @@ void StopEntryFilled(ulong deal)
    if(order == 0 || !HistoryOrderSelect(order))
       return;
    ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)HistoryOrderGetInteger(order, ORDER_TYPE);
-   if(ot != ORDER_TYPE_BUY_STOP && ot != ORDER_TYPE_SELL_STOP)
+   if(ot != ORDER_TYPE_BUY_STOP && ot != ORDER_TYPE_SELL_STOP && ot != ORDER_TYPE_BUY_LIMIT && ot != ORDER_TYPE_SELL_LIMIT)
       return;
-   int    dir   = ot == ORDER_TYPE_BUY_STOP ? 1 : -1;
+   int    dir   = (ot == ORDER_TYPE_BUY_STOP || ot == ORDER_TYPE_BUY_LIMIT) ? 1 : -1;
+   if(ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_SELL_LIMIT)
+      seAtr = rtAtr;
    double price = HistoryDealGetDouble(deal, DEAL_PRICE);
    double lots  = HistoryDealGetDouble(deal, DEAL_VOLUME);
    double sl    = HistoryOrderGetDouble(order, ORDER_SL);
@@ -1511,6 +1614,8 @@ string BlockReason(int tradesToday, double profitToday, bool ignoreSpread = fals
    if(paused && haltCode == 3)            return L("หยุด: ขาดทุนติดกันครบจำนวนวัน - ตรวจแล้วกด Resume", "Halted: losing days in a row - review, then Resume");
    if(paused)                             return L("หยุดชั่วคราว (กดปุ่ม)", "Paused (button)");
    if(TimeCurrent() < cooldownUntil)      return L("พักหลังแพ้ ถึง ", "Pause after loss until ") + TimeToString(cooldownUntil, TIME_MINUTES);
+   if(InpStopDayAfterLoss && lastLossDay == (long)(TimeCurrent() / 86400)) return L("หยุดวันนี้หลังแพ้", "Stopped for today after a losing trade");
+   if(InpSkipMonday && DayOfWeekNow() == 1) return L("ไม่เทรดวันจันทร์", "No trades on Mondays");
    if(newsBlocked)                        return L("งดเทรด ช่วงข่าว", "News window - no trades");
    if(DailyLossHit(profitToday))          return L("ถึงเพดานขาดทุนวันนี้", "Daily loss limit reached");
    if(MaxTradesEff() > 0 && tradesToday >= MaxTradesEff())  return L("ครบจำนวนไม้วันนี้", "Max trades for today");

@@ -1,0 +1,6 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpRangeStartHour=0
+InpDailyCloseHour=19
+InpRangeEndHour=4

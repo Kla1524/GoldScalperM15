@@ -1,0 +1,5 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpTrail_ATR=3
+InpTrailStart_ATR=6

@@ -1,0 +1,5 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpStopDayAfterLoss=true
+InpMaxTradesPerDay=0
