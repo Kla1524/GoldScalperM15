@@ -1,0 +1,8 @@
+﻿Gold improvements round (21 Oct 2026) - rules fixed BEFORE testing. Base = the live set (v1.53 logic, close 19:00 server, risk 0.75 %, 1 trade a day).
+One change at a time:
+ F1 Judas / AMD: a breakout counts only if, after the range formed, price first traded beyond the OTHER side of the range.
+ F2 FVG: the breakout must leave a fair value gap on the last three M15 bars (bar 3 high < bar 1 low for buys).
+ F3 H1 bias: H1 close > EMA50 > EMA200 for buys (reverse for sells).
+ P1 Pyramid: one extra trade in the same direction when the first is 2 x ATR(M15) in profit on a closed bar (same lot/risk rules, same SL rule).
+Pass rule (decided now): better total profit than the base in 2018-2023 AND not worse in both later periods, with DD not higher by more than 2 points.
+2018-2023 decides; 2024-2026 has been seen many times and only confirms. Nothing goes to the demo without the user's go-ahead after the report.

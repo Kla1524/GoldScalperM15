@@ -7,8 +7,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026 Kla1524 - MIT License"
 #property link      "https://github.com/Kla1524/GoldScalperM15"
-#property version   "1.54"
-#define   VERSION_TEXT "1.54"
+#property version   "1.55"
+#define   VERSION_TEXT "1.55"
 #define   REVERSE_COMMENT "GoldScalper REVERSE"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
@@ -71,6 +71,11 @@ input double InpMaxRiskPct      = 5.0;  // Hard cap: skip if the SL would lose m
 input int    InpMaxTradesPerDay = 1;    // Trades per day (the first breakout of the day; 0 = unlimited, not recommended)
 input bool   InpStopDayAfterLoss = false; // No new trades for the rest of the day after a losing trade
 input bool   InpSkipMonday      = false; // No new trades on Mondays
+input bool   InpFilterJudas     = false; // Smart-money filter (AMD / Judas swing): a breakout counts only if price first took the OTHER side of the range after it formed
+input bool   InpFilterFVG       = false; // Smart-money filter: the breakout bars must leave a fair value gap (bar 3 high < bar 1 low for buys)
+input bool   InpFilterH1Bias    = false; // Smart-money filter: H1 bias must agree (close > EMA50 > EMA200 for buys, the reverse for sells)
+input bool   InpPyramid         = false; // Add ONE more trade in the same direction when the first is InpPyramidATR x ATR in profit (same risk rules)
+input double InpPyramidATR      = 2.0;   // Pyramid: profit (in M15 ATR) needed before the add
 input bool   InpReverseOnOpposite = false; // Stop and reverse: a losing trade is closed and the opposite trade opened when price breaks out of the other side of the range (same lot rules, once per position)
 input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
 input double InpMaxDDPct        = 20.0; // Halt: pause when equity falls this % below its peak (0 = off)
@@ -152,7 +157,7 @@ struct TradeInfo
 };
 
 CTrade    trade;
-int       hTrend, hRSI, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1;
+int       hTrend, hRSI, hATR, hATRD1, hEmaH1, hEmaD1, hAdxH1, hEma50H1;
 TradeInfo ti;
 bool      tiValid       = false;
 // Lot settings in effect (inputs, or the account-check recommendation chosen in the popup).
@@ -191,6 +196,7 @@ long     dayEvaluated    = 0;           // server day number (time / 86400) last
 long     lastLossDay     = 0;           // server day number of the last losing trade (InpStopDayAfterLoss)
 string   gvLossDay       = "";
 double   rtAtr           = 0;           // retest entry: M15 ATR at the signal
+bool     pyramidNext     = false;       // the next market entry is a pyramid add (a position is already open)
 bool     reverseNext     = false;       // the next market entry is a stop-and-reverse (comment marks it)
 datetime testerResumeAt  = 0;           // tester (InpTesterHaltDays > 0): simulated Resume time
 double   testerHaltDays  = 0;           // tester: days spent halted
@@ -245,6 +251,7 @@ int OnInit()
    hEmaH1 = iMA(_Symbol, PERIOD_H1, 200, 0, MODE_EMA, PRICE_CLOSE);   // journal / diagnosis only
    hEmaD1 = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_EMA, PRICE_CLOSE);
    hAdxH1 = iADX(_Symbol, PERIOD_H1, 14);
+   hEma50H1 = iMA(_Symbol, PERIOD_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
 
    if(hTrend == INVALID_HANDLE || hRSI == INVALID_HANDLE || hATR == INVALID_HANDLE ||
       hATRD1 == INVALID_HANDLE || hEmaH1 == INVALID_HANDLE || hEmaD1 == INVALID_HANDLE ||
@@ -546,6 +553,8 @@ void OnTick()
    {
       if(InpReverseOnOpposite)
          TryReverse();
+      if(InpPyramid)
+         TryPyramid();
       return;
    }
 
@@ -573,6 +582,8 @@ void OnTick()
          return;
       }
    }
+   if(signal != 0 && !SmcFiltersOK(signal))
+      return;
    if(InpRetestEntry && signal != 0 && ((signal > 0 && InpAllowBuy) || (signal < 0 && InpAllowSell)))
    {
       PlaceRetest(signal, a);
@@ -988,7 +999,7 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
    }
    // One order at a time across charts: a second chart with the same magic, or a repeated
    // signal after a reconnect, must not open a duplicate.
-   if(!AcquireOrderLock() || CountPositions() > 0)
+   if(!AcquireOrderLock() || (CountPositions() > 0 && !pyramidNext))
    {
       Print("Duplicate order skipped: an order was just sent or a position of this EA is open");
       ConsoleLog("SKIP", "Duplicate order skipped: an order was just sent or a position of this EA is open");
@@ -1323,6 +1334,67 @@ void TryReverse()
    reverseNext = true;
    OpenTrade(sig > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, atr[0]);
    reverseNext = false;
+}
+
+//+------------------------------------------------------------------+
+//| v1.55 research options: smart-money filters and one pyramid add   |
+//+------------------------------------------------------------------+
+bool SmcFiltersOK(int dir)
+{
+   if(InpFilterJudas)
+   {
+      datetime day0 = TimeCurrent() - TimeCurrent() % 86400;
+      datetime from = day0 + InpRangeEndHour * 3600;
+      datetime to   = iTime(_Symbol, InpTF, 2);
+      if(to < from)
+         return false;
+      double hs[], ls[];
+      if(CopyHigh(_Symbol, InpTF, from, to, hs) < 1 || CopyLow(_Symbol, InpTF, from, to, ls) < 1)
+         return false;
+      if(dir > 0 && ls[ArrayMinimum(ls)] >= orbLow)  return false;   // the low side was never taken
+      if(dir < 0 && hs[ArrayMaximum(hs)] <= orbHigh) return false;
+   }
+   if(InpFilterFVG)
+   {
+      if(dir > 0 && !(iLow(_Symbol, InpTF, 1) > iHigh(_Symbol, InpTF, 3)))  return false;
+      if(dir < 0 && !(iHigh(_Symbol, InpTF, 1) < iLow(_Symbol, InpTF, 3)))  return false;
+   }
+   if(InpFilterH1Bias)
+   {
+      double e50[], e200[];
+      if(!GetBuf(hEma50H1, e50) || !GetBuf(hEmaH1, e200))
+         return false;
+      double c = iClose(_Symbol, PERIOD_H1, 1);
+      if(dir > 0 && !(c > e50[0] && e50[0] > e200[0])) return false;
+      if(dir < 0 && !(c < e50[0] && e50[0] < e200[0])) return false;
+   }
+   return true;
+}
+
+// One add in the direction of the open trade once it is InpPyramidATR x ATR in profit (checked on new bars).
+void TryPyramid()
+{
+   if(CountPositions() != 1)
+      return;
+   int dir = 0;
+   double open = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+      if(PositionGetTicket(i) > 0 && IsMine())
+      {
+         dir  = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY ? 1 : -1;
+         open = PositionGetDouble(POSITION_PRICE_OPEN);
+      }
+   double atr[];
+   if(dir == 0 || !GetBuf(hATR, atr) || atr[0] <= 0)
+      return;
+   double c1 = iClose(_Symbol, InpTF, 1);
+   if((c1 - open) * dir < InpPyramidATR * atr[0])
+      return;
+   if(!InSession() || TimeCurrent() >= CloseDeadline() || newsBlocked || !SpreadOK())
+      return;
+   pyramidNext = true;
+   OpenTrade(dir > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, atr[0]);
+   pyramidNext = false;
 }
 
 // A deal that opened a position: when it came from one of the stop orders, record the entry like a market entry.

@@ -1,0 +1,6 @@
+InpNotifyPush=false
+InpShowPanel=false
+InpConsole=false
+InpFilterFVG=true
+InpDailyCloseHour=19
+InpRiskPct=0.75
