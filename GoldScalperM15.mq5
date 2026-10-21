@@ -9,6 +9,7 @@
 #property link      "https://github.com/Kla1524/GoldScalperM15"
 #property version   "1.54"
 #define   VERSION_TEXT "1.54"
+#define   REVERSE_COMMENT "GoldScalper REVERSE"
 #property description "XAUUSD M15 intraday - Asian-range breakout, volatility & news filters, panel"
 #property description "For education and research only - not investment advice."
 
@@ -70,6 +71,7 @@ input double InpMaxRiskPct      = 5.0;  // Hard cap: skip if the SL would lose m
 input int    InpMaxTradesPerDay = 1;    // Trades per day (the first breakout of the day; 0 = unlimited, not recommended)
 input bool   InpStopDayAfterLoss = false; // No new trades for the rest of the day after a losing trade
 input bool   InpSkipMonday      = false; // No new trades on Mondays
+input bool   InpReverseOnOpposite = false; // Stop and reverse: a losing trade is closed and the opposite trade opened when price breaks out of the other side of the range (same lot rules, once per position)
 input double InpMaxDailyLossPct = 3.0;  // Daily loss limit, % of start-of-day balance (0 = off)
 input double InpMaxDDPct        = 20.0; // Halt: pause when equity falls this % below its peak (0 = off)
 input int    InpMaxLossStreak   = 5;    // Halt: pause after this many losing trades in a row (0 = off)
@@ -189,6 +191,7 @@ long     dayEvaluated    = 0;           // server day number (time / 86400) last
 long     lastLossDay     = 0;           // server day number of the last losing trade (InpStopDayAfterLoss)
 string   gvLossDay       = "";
 double   rtAtr           = 0;           // retest entry: M15 ATR at the signal
+bool     reverseNext     = false;       // the next market entry is a stop-and-reverse (comment marks it)
 datetime testerResumeAt  = 0;           // tester (InpTesterHaltDays > 0): simulated Resume time
 double   testerHaltDays  = 0;           // tester: days spent halted
 double   testerExtraCost = 0;           // tester (InpTesterSpreadMult > 1): extra spread charged
@@ -540,7 +543,11 @@ void OnTick()
       return;   // entries come from the stop orders (StopEntryOnTick)
 
    if(CountPositions() > 0)
+   {
+      if(InpReverseOnOpposite)
+         TryReverse();
       return;
+   }
 
    int    tradesToday;
    double profitToday;
@@ -997,8 +1004,8 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
       return;
    }
 
-   bool ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, "GoldScalper BUY")
-                   : trade.Sell(lots, _Symbol, bid, sl, tp, "GoldScalper SELL");
+   bool ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, (reverseNext ? REVERSE_COMMENT : "GoldScalper BUY"))
+                   : trade.Sell(lots, _Symbol, bid, sl, tp, (reverseNext ? REVERSE_COMMENT : "GoldScalper SELL"));
    // Requote / price changed: retry once at the new price with the same stop distance and lot,
    // so the risk stays the same. The breakout signal is only evaluated once per bar.
    uint rc0 = trade.ResultRetcode();
@@ -1011,8 +1018,8 @@ void OpenTrade(ENUM_ORDER_TYPE type, double atr)
       sl    = NormPrice(isBuy ? ask - slDist : bid + slDist);
       tp    = InpTP_ATR > 0 ? NormPrice(isBuy ? ask + tpDist : bid - tpDist) : 0;
       if(SpreadOK())
-         ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, "GoldScalper BUY")
-                    : trade.Sell(lots, _Symbol, bid, sl, tp, "GoldScalper SELL");
+         ok = isBuy ? trade.Buy(lots, _Symbol, ask, sl, tp, (reverseNext ? REVERSE_COMMENT : "GoldScalper BUY"))
+                    : trade.Sell(lots, _Symbol, bid, sl, tp, (reverseNext ? REVERSE_COMMENT : "GoldScalper SELL"));
    }
    if(ok)
    {
@@ -1270,6 +1277,52 @@ void RetestOnTick()
    string block = BlockReason(tradesToday, profitToday, true);
    if(block != "")
       DeleteRetestOrders(block);
+}
+
+//+------------------------------------------------------------------+
+//| Stop and reverse (InpReverseOnOpposite, v1.54): while this EA's   |
+//| trade is losing, a breakout through the OTHER side of the range   |
+//| (M15 close, same crossing rule and filters as a new entry) closes |
+//| it and opens the opposite trade. A reversed trade is not reversed |
+//| again.                                                            |
+//+------------------------------------------------------------------+
+
+void TryReverse()
+{
+   int    pdir = 0;
+   double ppl = 0;
+   ulong  ticket = 0;
+   bool   reversedAlready = false;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !IsMine())
+         continue;
+      ticket = t;
+      pdir = PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY ? 1 : -1;
+      ppl  = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      reversedAlready = StringFind(PositionGetString(POSITION_COMMENT), REVERSE_COMMENT) >= 0;
+   }
+   if(ticket == 0 || reversedAlready || ppl >= 0)
+      return;
+   int sig = GetSignal();
+   if(sig == 0 || sig == pdir)
+      return;
+   if(!InSession() || TimeCurrent() >= CloseDeadline() || newsBlocked || !SpreadOK() || !VolatilityOK())
+      return;
+   if((sig > 0 && !InpAllowBuy) || (sig < 0 && !InpAllowSell))
+      return;
+   if(InpMinConfidence > 0 && ConfidenceScore(sig) < InpMinConfidence)
+      return;
+   double atr[];
+   if(!GetBuf(hATR, atr) || atr[0] <= 0)
+      return;
+   PrintFormat("Reverse: closing #%I64u (%s, P/L %.2f) for a %s breakout", ticket, pdir > 0 ? "BUY" : "SELL", ppl, sig > 0 ? "BUY" : "SELL");
+   if(!ClosePosition(ticket, L("กลับทาง", "reverse")))
+      return;
+   reverseNext = true;
+   OpenTrade(sig > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, atr[0]);
+   reverseNext = false;
 }
 
 // A deal that opened a position: when it came from one of the stop orders, record the entry like a market entry.
