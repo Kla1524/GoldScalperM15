@@ -1,0 +1,180 @@
+﻿
+M1_sweep_mss_fvg_DEV: n=63 win=21% R=-27.7 avgR=-0.440 PF=0.41
+   ADX<20      n=9 win=11% R=-5.5 avgR=-0.614 PF=0.27
+   ADX 20-25   n=9 win=11% R=-7.4 avgR=-0.827 PF=0.07
+   ADX>=25     n=45 win=24% R=-14.7 avgR=-0.327 PF=0.53
+   with H1 bias n=16 win=19% R=-9.2 avgR=-0.578 PF=0.29
+   against bias n=31 win=26% R=-7.8 avgR=-0.251 PF=0.62
+   hour 00-09   -
+   hour 09-12   n=25 win=20% R=-11.7 avgR=-0.467 PF=0.42
+   hour 12-14   n=8 win=25% R=-3.2 avgR=-0.400 PF=0.47
+   hour 14-18   n=29 win=21% R=-12.7 avgR=-0.437 PF=0.39
+   hour 18-24   n=1 win=0% R=-0.1 avgR=-0.141 PF=0.00
+
+M1_sweep_mss_fvg_VAL: n=37 win=24% R=-11.9 avgR=-0.321 PF=0.54
+   ADX<20      n=4 win=0% R=-3.1 avgR=-0.764 PF=0.00
+   ADX 20-25   n=9 win=44% R=+1.8 avgR=+0.197 PF=1.38
+   ADX>=25     n=24 win=21% R=-10.6 avgR=-0.442 PF=0.41
+   with H1 bias n=10 win=30% R=-2.5 avgR=-0.252 PF=0.62
+   against bias n=14 win=36% R=+1.2 avgR=+0.089 PF=1.16
+   hour 00-09   -
+   hour 09-12   n=12 win=25% R=-3.7 avgR=-0.308 PF=0.59
+   hour 12-14   n=5 win=20% R=-3.9 avgR=-0.775 PF=0.03
+   hour 14-18   n=19 win=21% R=-4.7 avgR=-0.249 PF=0.63
+   hour 18-24   n=1 win=100% R=+0.4 avgR=+0.413 PF=inf
+
+M1_sweep_mss_fvg_VALRT: n=27 win=22% R=-12.7 avgR=-0.469 PF=0.39
+   ADX<20      n=2 win=0% R=-2.0 avgR=-1.024 PF=0.00
+   ADX 20-25   n=7 win=29% R=-2.8 avgR=-0.394 PF=0.47
+   ADX>=25     n=18 win=22% R=-7.9 avgR=-0.437 PF=0.41
+   with H1 bias n=7 win=29% R=-3.1 avgR=-0.438 PF=0.41
+   against bias n=11 win=27% R=-2.8 avgR=-0.259 PF=0.65
+   hour 00-09   -
+   hour 09-12   n=9 win=11% R=-6.8 avgR=-0.755 PF=0.16
+   hour 12-14   n=3 win=33% R=-1.9 avgR=-0.618 PF=0.06
+   hour 14-18   n=14 win=21% R=-4.4 avgR=-0.318 PF=0.58
+   hour 18-24   n=1 win=100% R=+0.4 avgR=+0.429 PF=inf
+
+M2_turtle_soup_DEV: n=1231 win=33% R=-118.0 avgR=-0.096 PF=0.85
+   ADX<20      n=165 win=32% R=-22.6 avgR=-0.137 PF=0.78
+   ADX 20-25   n=246 win=32% R=-27.6 avgR=-0.112 PF=0.83
+   ADX>=25     n=820 win=34% R=-67.8 avgR=-0.083 PF=0.87
+   with H1 bias n=46 win=26% R=-12.8 avgR=-0.279 PF=0.58
+   against bias n=698 win=33% R=-69.5 avgR=-0.100 PF=0.84
+   hour 00-09   -
+   hour 09-12   n=529 win=33% R=-24.1 avgR=-0.046 PF=0.93
+   hour 12-14   -
+   hour 14-18   n=702 win=34% R=-93.9 avgR=-0.134 PF=0.78
+   hour 18-24   -
+
+M2_turtle_soup_VAL: n=520 win=34% R=-36.9 avgR=-0.071 PF=0.89
+   ADX<20      n=73 win=40% R=+5.8 avgR=+0.079 PF=1.13
+   ADX 20-25   n=103 win=35% R=-9.9 avgR=-0.097 PF=0.84
+   ADX>=25     n=344 win=33% R=-32.7 avgR=-0.095 PF=0.85
+   with H1 bias n=16 win=56% R=+9.2 avgR=+0.576 PF=2.36
+   against bias n=305 win=32% R=-27.3 avgR=-0.090 PF=0.86
+   hour 00-09   -
+   hour 09-12   n=219 win=32% R=-17.8 avgR=-0.081 PF=0.88
+   hour 12-14   -
+   hour 14-18   n=301 win=36% R=-19.0 avgR=-0.063 PF=0.89
+   hour 18-24   -
+
+M2_turtle_soup_VALRT: n=364 win=33% R=-35.4 avgR=-0.097 PF=0.85
+   ADX<20      n=49 win=37% R=+0.4 avgR=+0.009 PF=1.01
+   ADX 20-25   n=80 win=34% R=-10.0 avgR=-0.125 PF=0.81
+   ADX>=25     n=235 win=32% R=-25.9 avgR=-0.110 PF=0.83
+   with H1 bias n=12 win=67% R=+10.3 avgR=+0.859 PF=3.73
+   against bias n=208 win=29% R=-33.6 avgR=-0.162 PF=0.77
+   hour 00-09   -
+   hour 09-12   n=158 win=29% R=-24.6 avgR=-0.156 PF=0.78
+   hour 12-14   -
+   hour 14-18   n=206 win=36% R=-10.8 avgR=-0.052 PF=0.91
+   hour 18-24   -
+
+M3_silver_bullet_DEV: n=420 win=36% R=-52.3 avgR=-0.124 PF=0.77
+   ADX<20      n=59 win=42% R=+0.0 avgR=+0.001 PF=1.00
+   ADX 20-25   n=89 win=38% R=-15.2 avgR=-0.171 PF=0.69
+   ADX>=25     n=272 win=34% R=-37.1 avgR=-0.136 PF=0.75
+   with H1 bias n=420 win=36% R=-52.3 avgR=-0.124 PF=0.77
+   against bias -
+   hour 00-09   -
+   hour 09-12   n=237 win=31% R=-29.4 avgR=-0.124 PF=0.82
+   hour 12-14   -
+   hour 14-18   n=183 win=43% R=-22.8 avgR=-0.125 PF=0.63
+   hour 18-24   -
+
+M3_silver_bullet_VAL: n=170 win=44% R=+8.1 avgR=+0.048 PF=1.09
+   ADX<20      n=30 win=30% R=-7.8 avgR=-0.261 PF=0.60
+   ADX 20-25   n=29 win=31% R=-8.1 avgR=-0.280 PF=0.58
+   ADX>=25     n=111 win=50% R=+24.0 avgR=+0.217 PF=1.47
+   with H1 bias n=170 win=44% R=+8.1 avgR=+0.048 PF=1.09
+   against bias -
+   hour 00-09   -
+   hour 09-12   n=92 win=33% R=-1.5 avgR=-0.017 PF=0.97
+   hour 12-14   -
+   hour 14-18   n=78 win=56% R=+9.6 avgR=+0.123 PF=1.34
+   hour 18-24   -
+
+M3_silver_bullet_VALRT: n=124 win=41% R=-2.5 avgR=-0.020 PF=0.96
+   ADX<20      n=21 win=33% R=-4.7 avgR=-0.225 PF=0.64
+   ADX 20-25   n=24 win=33% R=-6.4 avgR=-0.266 PF=0.59
+   ADX>=25     n=79 win=46% R=+8.6 avgR=+0.109 PF=1.22
+   with H1 bias n=124 win=41% R=-2.5 avgR=-0.020 PF=0.96
+   against bias -
+   hour 00-09   -
+   hour 09-12   n=66 win=30% R=-6.1 avgR=-0.092 PF=0.87
+   hour 12-14   -
+   hour 14-18   n=58 win=53% R=+3.6 avgR=+0.062 PF=1.16
+   hour 18-24   -
+
+M4_ob_retest_DEV: n=448 win=28% R=-107.5 avgR=-0.240 PF=0.66
+   ADX<20      n=84 win=38% R=+3.3 avgR=+0.039 PF=1.07
+   ADX 20-25   n=93 win=25% R=-23.6 avgR=-0.254 PF=0.64
+   ADX>=25     n=271 win=25% R=-87.1 avgR=-0.322 PF=0.56
+   with H1 bias n=448 win=28% R=-107.5 avgR=-0.240 PF=0.66
+   against bias -
+   hour 00-09   -
+   hour 09-12   n=205 win=25% R=-53.0 avgR=-0.259 PF=0.66
+   hour 12-14   -
+   hour 14-18   n=243 win=30% R=-54.4 avgR=-0.224 PF=0.66
+   hour 18-24   -
+
+M4_ob_retest_VAL: n=180 win=28% R=-37.0 avgR=-0.205 PF=0.70
+   ADX<20      n=25 win=28% R=-7.8 avgR=-0.310 PF=0.57
+   ADX 20-25   n=39 win=23% R=-11.9 avgR=-0.306 PF=0.56
+   ADX>=25     n=116 win=29% R=-17.3 avgR=-0.149 PF=0.78
+   with H1 bias n=180 win=28% R=-37.0 avgR=-0.205 PF=0.70
+   against bias -
+   hour 00-09   -
+   hour 09-12   n=74 win=22% R=-26.7 avgR=-0.360 PF=0.54
+   hour 12-14   -
+   hour 14-18   n=106 win=32% R=-10.3 avgR=-0.097 PF=0.84
+   hour 18-24   -
+
+M4_ob_retest_VALRT: n=129 win=30% R=-16.8 avgR=-0.130 PF=0.81
+   ADX<20      n=20 win=25% R=-5.5 avgR=-0.277 PF=0.63
+   ADX 20-25   n=25 win=32% R=-2.9 avgR=-0.116 PF=0.82
+   ADX>=25     n=84 win=31% R=-8.4 avgR=-0.099 PF=0.85
+   with H1 bias n=129 win=30% R=-16.8 avgR=-0.130 PF=0.81
+   against bias -
+   hour 00-09   -
+   hour 09-12   n=51 win=27% R=-9.6 avgR=-0.188 PF=0.74
+   hour 12-14   -
+   hour 14-18   n=78 win=32% R=-7.2 avgR=-0.092 PF=0.86
+   hour 18-24   -
+
+M5_range_fade_DEV: n=565 win=32% R=-75.2 avgR=-0.133 PF=0.79
+   ADX<20      n=550 win=32% R=-80.6 avgR=-0.147 PF=0.77
+   ADX 20-25   n=15 win=47% R=+5.4 avgR=+0.363 PF=1.72
+   ADX>=25     -
+   with H1 bias n=82 win=24% R=-29.1 avgR=-0.354 PF=0.50
+   against bias n=265 win=31% R=-37.2 avgR=-0.140 PF=0.78
+   hour 00-09   n=212 win=29% R=-29.8 avgR=-0.141 PF=0.80
+   hour 09-12   n=136 win=26% R=-35.0 avgR=-0.257 PF=0.65
+   hour 12-14   n=67 win=27% R=-14.8 avgR=-0.221 PF=0.70
+   hour 14-18   n=114 win=46% R=+6.6 avgR=+0.058 PF=1.13
+   hour 18-24   n=36 win=42% R=-2.2 avgR=-0.060 PF=0.71
+
+M5_range_fade_VAL: n=271 win=31% R=-40.5 avgR=-0.150 PF=0.76
+   ADX<20      n=268 win=31% R=-37.5 avgR=-0.140 PF=0.78
+   ADX 20-25   n=3 win=0% R=-3.0 avgR=-1.000 PF=0.00
+   ADX>=25     -
+   with H1 bias n=43 win=21% R=-15.3 avgR=-0.355 PF=0.52
+   against bias n=117 win=32% R=-8.0 avgR=-0.069 PF=0.89
+   hour 00-09   n=121 win=27% R=-22.8 avgR=-0.189 PF=0.74
+   hour 09-12   n=50 win=28% R=-8.3 avgR=-0.167 PF=0.76
+   hour 12-14   n=24 win=38% R=+3.7 avgR=+0.154 PF=1.26
+   hour 14-18   n=56 win=32% R=-11.8 avgR=-0.210 PF=0.62
+   hour 18-24   n=20 win=50% R=-1.3 avgR=-0.066 PF=0.65
+
+M5_range_fade_VALRT: n=196 win=31% R=-33.4 avgR=-0.170 PF=0.73
+   ADX<20      n=194 win=31% R=-31.4 avgR=-0.162 PF=0.75
+   ADX 20-25   n=2 win=0% R=-2.0 avgR=-1.007 PF=0.00
+   ADX>=25     -
+   with H1 bias n=31 win=23% R=-9.7 avgR=-0.315 PF=0.57
+   against bias n=85 win=31% R=-13.3 avgR=-0.156 PF=0.75
+   hour 00-09   n=89 win=27% R=-18.4 avgR=-0.207 PF=0.72
+   hour 09-12   n=37 win=27% R=-7.6 avgR=-0.207 PF=0.71
+   hour 12-14   n=16 win=31% R=-0.4 avgR=-0.023 PF=0.96
+   hour 14-18   n=38 win=34% R=-6.2 avgR=-0.163 PF=0.70
+   hour 18-24   n=16 win=56% R=-0.8 avgR=-0.050 PF=0.74
